@@ -40,6 +40,46 @@ export default function Home() {
     setIsPurchaseModalOpen(true);
   };
 
+  const handleBottomNavChange = (tab: string) => {
+    setBottomNavTab(tab);
+    
+    // Map bottom navigation to corresponding content
+    switch (tab) {
+      case "home":
+        setActiveTab("countries");
+        break;
+      case "numbers":
+        setActiveTab("orders");
+        break;
+      case "history":
+        setActiveTab("messages");
+        break;
+      case "profile":
+        setActiveTab("services");
+        break;
+    }
+  };
+
+  const handleTopTabChange = (tab: string) => {
+    setActiveTab(tab);
+    
+    // Update bottom navigation to match
+    switch (tab) {
+      case "countries":
+        setBottomNavTab("home");
+        break;
+      case "orders":
+        setBottomNavTab("numbers");
+        break;
+      case "messages":
+        setBottomNavTab("history");
+        break;
+      case "services":
+        setBottomNavTab("profile");
+        break;
+    }
+  };
+
   const renderTabContent = () => {
     switch (activeTab) {
       case "countries":
@@ -78,7 +118,7 @@ export default function Home() {
       <TabNavigation 
         tabs={tabs}
         activeTab={activeTab}
-        onTabChange={setActiveTab}
+        onTabChange={handleTopTabChange}
       />
       
       <main className="pb-20">
@@ -99,7 +139,7 @@ export default function Home() {
       
       <BottomNavigation 
         activeTab={bottomNavTab}
-        onTabChange={setBottomNavTab}
+        onTabChange={handleBottomNavChange}
       />
       
       <PurchaseModal 
