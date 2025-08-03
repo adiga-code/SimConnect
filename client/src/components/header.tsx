@@ -23,14 +23,14 @@ export function Header() {
   };
 
   return (
-    <header className="sticky top-0 z-50 bg-white/95 dark:bg-background/95 backdrop-blur-sm border-b border-gray-200 dark:border-border">
+    <header className="sticky top-0 z-50 gradient-cyber backdrop-blur-sm border-b border-cyber-border shadow-cyber">
       <div className="flex items-center justify-between p-4">
-        <h1 className="text-xl font-semibold" data-testid="app-title">OnlineSim</h1>
+        <h1 className="text-xl font-bold text-cyber-accent" data-testid="app-title">OnlineSim</h1>
         <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2 bg-green-50 dark:bg-green-900/20 px-3 py-1.5 rounded-lg">
-            <Wallet className="h-4 w-4 text-green-600 dark:text-green-400" />
+          <div className="flex items-center gap-2 bg-primary/10 border border-primary/20 px-3 py-1.5 rounded-lg">
+            <Wallet className="h-4 w-4 text-primary" />
             <span 
-              className="font-medium text-green-700 dark:text-green-300" 
+              className="font-medium text-primary" 
               data-testid="user-balance"
             >
               {user ? formatBalance(user.balance) : "₽0.00"}
@@ -40,7 +40,7 @@ export function Header() {
             variant="ghost"
             size="icon"
             onClick={toggleTheme}
-            className="bg-gray-100 dark:bg-secondary"
+            className="bg-secondary/50 hover:bg-secondary border border-cyber-border"
             data-testid="button-theme-toggle"
           >
             <Sun className="h-4 w-4 rotate-0 scale-100 transition-all dark:-rotate-90 dark:scale-0" />

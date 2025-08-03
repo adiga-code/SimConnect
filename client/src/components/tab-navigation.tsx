@@ -13,17 +13,17 @@ interface TabNavigationProps {
 
 export function TabNavigation({ tabs, activeTab, onTabChange }: TabNavigationProps) {
   return (
-    <nav className="border-b border-gray-200 dark:border-border bg-white dark:bg-background">
+    <nav className="border-b border-cyber-border bg-card">
       <div className="flex">
         {tabs.map((tab) => (
           <button
             key={tab.id}
             onClick={() => onTabChange(tab.id)}
             className={cn(
-              "flex-1 py-3 text-center font-medium transition-colors",
+              "flex-1 py-3 text-center font-medium transition-all duration-200",
               activeTab === tab.id
-                ? "text-telegram-blue border-b-2 border-telegram-blue bg-blue-50 dark:bg-blue-900/20"
-                : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
+                ? "text-primary border-b-2 border-primary bg-primary/5 shadow-sm"
+                : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
             )}
             data-testid={`tab-${tab.id}`}
           >

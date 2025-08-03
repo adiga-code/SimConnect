@@ -4,55 +4,56 @@
 
 :root {
   --background: hsl(0, 0%, 100%);
-  --foreground: hsl(20, 14.3%, 4.1%);
-  --muted: hsl(60, 4.8%, 95.9%);
-  --muted-foreground: hsl(25, 5.3%, 44.7%);
+  --foreground: hsl(0, 0%, 6.5%);
+  --muted: hsl(0, 0%, 96%);
+  --muted-foreground: hsl(0, 0%, 45%);
   --popover: hsl(0, 0%, 100%);
-  --popover-foreground: hsl(20, 14.3%, 4.1%);
+  --popover-foreground: hsl(0, 0%, 6.5%);
   --card: hsl(0, 0%, 100%);
-  --card-foreground: hsl(20, 14.3%, 4.1%);
-  --border: hsl(20, 5.9%, 90%);
-  --input: hsl(20, 5.9%, 90%);
-  --primary: hsl(207, 90%, 54%);
-  --primary-foreground: hsl(211, 100%, 99%);
-  --secondary: hsl(60, 4.8%, 95.9%);
-  --secondary-foreground: hsl(24, 9.8%, 10%);
-  --accent: hsl(60, 4.8%, 95.9%);
-  --accent-foreground: hsl(24, 9.8%, 10%);
-  --destructive: hsl(0, 84.2%, 60.2%);
-  --destructive-foreground: hsl(60, 9.1%, 97.8%);
-  --ring: hsl(20, 14.3%, 4.1%);
-  --radius: 0.5rem;
+  --card-foreground: hsl(0, 0%, 6.5%);
+  --border: hsl(0, 0%, 89%);
+  --input: hsl(0, 0%, 89%);
+  --primary: hsl(194, 100%, 50%);
+  --primary-foreground: hsl(0, 0%, 100%);
+  --secondary: hsl(0, 0%, 96%);
+  --secondary-foreground: hsl(0, 0%, 9%);
+  --accent: hsl(0, 0%, 96%);
+  --accent-foreground: hsl(0, 0%, 9%);
+  --destructive: hsl(0, 84%, 60%);
+  --destructive-foreground: hsl(0, 0%, 98%);
+  --ring: hsl(194, 100%, 50%);
+  --radius: 0.75rem;
   
-  /* Telegram theme colors */
-  --telegram-bg: hsl(211, 29%, 26%);
-  --telegram-secondary: hsl(211, 26%, 28%);
-  --telegram-accent: hsl(202, 46%, 64%);
-  --telegram-blue: hsl(211, 100%, 50%);
-  --telegram-text: hsl(0, 0%, 100%);
+  /* Professional cyber theme colors */
+  --cyber-dark: hsl(215, 28%, 17%);
+  --cyber-darker: hsl(215, 27%, 12%);
+  --cyber-accent: hsl(174, 100%, 50%);
+  --cyber-blue: hsl(194, 100%, 50%);
+  --cyber-text: hsl(0, 0%, 88%);
+  --cyber-border: hsl(215, 20%, 25%);
 }
 
 .dark {
-  --background: hsl(211, 29%, 26%);
-  --foreground: hsl(0, 0%, 98%);
-  --muted: hsl(211, 26%, 28%);
-  --muted-foreground: hsl(240, 5%, 64.9%);
-  --popover: hsl(211, 29%, 26%);
-  --popover-foreground: hsl(0, 0%, 98%);
-  --card: hsl(211, 26%, 28%);
-  --card-foreground: hsl(0, 0%, 98%);
-  --border: hsl(211, 26%, 28%);
-  --input: hsl(211, 26%, 28%);
-  --primary: hsl(211, 100%, 50%);
-  --primary-foreground: hsl(211, 100%, 99%);
-  --secondary: hsl(211, 26%, 28%);
-  --secondary-foreground: hsl(0, 0%, 98%);
-  --accent: hsl(211, 26%, 28%);
-  --accent-foreground: hsl(0, 0%, 98%);
-  --destructive: hsl(0, 62.8%, 30.6%);
-  --destructive-foreground: hsl(0, 0%, 98%);
-  --ring: hsl(240, 4.9%, 83.9%);
-  --radius: 0.5rem;
+  --background: hsl(215, 27%, 12%);
+  --foreground: hsl(0, 0%, 88%);
+  --muted: hsl(215, 20%, 18%);
+  --muted-foreground: hsl(0, 0%, 63%);
+  --popover: hsl(215, 27%, 12%);
+  --popover-foreground: hsl(0, 0%, 88%);
+  --card: hsl(215, 28%, 17%);
+  --card-foreground: hsl(0, 0%, 88%);
+  --border: hsl(215, 20%, 25%);
+  --input: hsl(215, 20%, 18%);
+  --primary: hsl(174, 100%, 50%);
+  --primary-foreground: hsl(215, 27%, 12%);
+  --secondary: hsl(215, 20%, 18%);
+  --secondary-foreground: hsl(0, 0%, 88%);
+  --accent: hsl(215, 20%, 18%);
+  --accent-foreground: hsl(0, 0%, 88%);
+  --destructive: hsl(0, 62%, 50%);
+  --destructive-foreground: hsl(0, 0%, 88%);
+  --ring: hsl(174, 100%, 50%);
+  --radius: 0.75rem;
 }
 
 @layer base {
@@ -67,19 +68,47 @@
 }
 
 @layer utilities {
-  .telegram-blue {
-    color: var(--telegram-blue);
+  .cyber-accent {
+    color: var(--cyber-accent);
   }
   
-  .bg-telegram-blue {
-    background-color: var(--telegram-blue);
+  .bg-cyber-accent {
+    background-color: var(--cyber-accent);
   }
   
-  .border-telegram-blue {
-    border-color: var(--telegram-blue);
+  .border-cyber-accent {
+    border-color: var(--cyber-accent);
   }
   
-  .text-telegram-blue {
-    color: var(--telegram-blue);
+  .text-cyber-accent {
+    color: var(--cyber-accent);
+  }
+  
+  .bg-cyber-dark {
+    background-color: var(--cyber-dark);
+  }
+  
+  .bg-cyber-darker {
+    background-color: var(--cyber-darker);
+  }
+  
+  .text-cyber-text {
+    color: var(--cyber-text);
+  }
+  
+  .border-cyber-border {
+    border-color: var(--cyber-border);
+  }
+  
+  .gradient-cyber {
+    background: linear-gradient(135deg, var(--cyber-dark) 0%, var(--cyber-darker) 100%);
+  }
+  
+  .shadow-cyber {
+    box-shadow: 0 4px 20px rgba(0, 255, 198, 0.15);
+  }
+  
+  .glow-cyber {
+    box-shadow: 0 0 20px rgba(0, 255, 198, 0.3);
   }
 }

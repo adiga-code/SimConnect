@@ -15,7 +15,7 @@ export function BottomNavigation({ activeTab, onTabChange }: BottomNavigationPro
   ];
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 bg-white dark:bg-background border-t border-gray-200 dark:border-border z-30">
+    <nav className="fixed bottom-0 left-0 right-0 bg-card/95 backdrop-blur-sm border-t border-cyber-border shadow-cyber z-30">
       <div className="grid grid-cols-4 h-16">
         {navItems.map((item) => {
           const Icon = item.icon;
@@ -26,13 +26,16 @@ export function BottomNavigation({ activeTab, onTabChange }: BottomNavigationPro
               key={item.id}
               onClick={() => onTabChange(item.id)}
               className={cn(
-                "flex flex-col items-center justify-center transition-colors",
+                "flex flex-col items-center justify-center transition-all duration-200 relative",
                 isActive 
-                  ? "text-telegram-blue" 
-                  : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
+                  ? "text-primary" 
+                  : "text-muted-foreground hover:text-foreground"
               )}
               data-testid={`nav-${item.id}`}
             >
+              {isActive && (
+                <div className="absolute top-0 left-1/2 transform -translate-x-1/2 w-8 h-0.5 bg-primary rounded-full" />
+              )}
               <Icon className="h-5 w-5" />
               <span className="text-xs mt-1">{item.label}</span>
             </button>

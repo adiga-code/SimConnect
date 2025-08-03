@@ -82,7 +82,7 @@ export function SelectTab({ onPurchaseSuccess }: SelectTabProps) {
           <Button
             size="icon"
             onClick={() => setIsPurchaseModalOpen(true)}
-            className="w-14 h-14 bg-telegram-blue hover:bg-telegram-blue/90 text-white rounded-full shadow-lg"
+            className="w-14 h-14 bg-primary hover:bg-primary/90 text-primary-foreground rounded-full shadow-cyber glow-cyber"
             data-testid="button-purchase-fab"
           >
             <Plus className="h-6 w-6" />

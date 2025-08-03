@@ -91,7 +91,7 @@ export function ProfileTab() {
           </div>
           <Button 
             onClick={handleTopUp}
-            className="w-full bg-telegram-blue hover:bg-telegram-blue/90"
+            className="w-full bg-primary hover:bg-primary/90 shadow-cyber"
             data-testid="button-top-up"
           >
             <CreditCard className="h-4 w-4 mr-2" />
@@ -139,9 +139,9 @@ export function ProfileTab() {
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="bg-blue-50 dark:bg-blue-900/20 p-3 rounded-lg">
-            <h4 className="font-medium text-telegram-blue mb-2">Приглашайте друзей!</h4>
-            <p className="text-sm text-gray-600 dark:text-gray-300">
+          <div className="bg-primary/5 border border-primary/20 p-3 rounded-lg">
+            <h4 className="font-medium text-primary mb-2">Приглашайте друзей!</h4>
+            <p className="text-sm text-muted-foreground">
               Получайте 10% с каждой покупки приглашенных пользователей
             </p>
           </div>
@@ -168,12 +168,12 @@ export function ProfileTab() {
 
           <div className="grid grid-cols-2 gap-4 pt-2">
             <div className="text-center">
-              <div className="text-2xl font-bold text-telegram-blue">0</div>
-              <div className="text-sm text-gray-500 dark:text-gray-400">Приглашено</div>
+              <div className="text-2xl font-bold text-primary">0</div>
+              <div className="text-sm text-muted-foreground">Приглашено</div>
             </div>
             <div className="text-center">
-              <div className="text-2xl font-bold text-green-600 dark:text-green-400">₽0.00</div>
-              <div className="text-sm text-gray-500 dark:text-gray-400">Заработано</div>
+              <div className="text-2xl font-bold text-primary">₽0.00</div>
+              <div className="text-sm text-muted-foreground">Заработано</div>
             </div>
           </div>
         </CardContent>

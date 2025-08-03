@@ -143,11 +143,11 @@ export function PurchaseModal({ open, onOpenChange }: PurchaseModalProps) {
             </Select>
           </div>
           
-          <Card className="bg-blue-50 dark:bg-blue-900/20">
+          <Card className="bg-primary/5 border border-primary/20">
             <CardContent className="p-4">
               <div className="flex items-center justify-between">
                 <span className="font-medium">Стоимость:</span>
-                <span className="text-xl font-bold text-telegram-blue" data-testid="text-price">
+                <span className="text-xl font-bold text-primary" data-testid="text-price">
                   ₽{calculatePrice()}
                 </span>
               </div>
@@ -157,7 +157,7 @@ export function PurchaseModal({ open, onOpenChange }: PurchaseModalProps) {
           <Button
             onClick={handlePurchase}
             disabled={!selectedCountryId || !selectedServiceId || purchaseMutation.isPending}
-            className="w-full bg-telegram-blue hover:bg-telegram-blue/90"
+            className="w-full bg-primary hover:bg-primary/90 shadow-cyber"
             data-testid="button-purchase"
           >
             {purchaseMutation.isPending ? "Покупка..." : "Купить номер"}
