@@ -61,7 +61,7 @@ export function SelectTab({ onPurchaseSuccess }: SelectTabProps) {
   };
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full animate-fade-in">
       <SearchBar 
         value={searchQuery}
         onChange={setSearchQuery}
@@ -75,14 +75,16 @@ export function SelectTab({ onPurchaseSuccess }: SelectTabProps) {
       />
       
       <div className="flex-1 relative">
-        {renderTabContent()}
+        <div className="animate-fade-in-up">
+          {renderTabContent()}
+        </div>
         
         {/* Floating Action Button */}
         <div className="fixed bottom-20 right-4 z-40">
           <Button
             size="icon"
             onClick={() => setIsPurchaseModalOpen(true)}
-            className="w-14 h-14 bg-primary hover:bg-primary/90 text-primary-foreground rounded-full shadow-cyber glow-cyber"
+            className="w-14 h-14 bg-primary hover:bg-primary/90 text-primary-foreground rounded-full shadow-cyber btn-cyber hover-glow animate-scale-in"
             data-testid="button-purchase-fab"
           >
             <Plus className="h-6 w-6" />

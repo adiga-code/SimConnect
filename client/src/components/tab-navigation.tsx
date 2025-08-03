@@ -20,7 +20,7 @@ export function TabNavigation({ tabs, activeTab, onTabChange }: TabNavigationPro
             key={tab.id}
             onClick={() => onTabChange(tab.id)}
             className={cn(
-              "flex-1 py-3 text-center font-medium transition-all duration-200",
+              "flex-1 py-3 text-center font-medium transition-all duration-200 hover-lift relative",
               activeTab === tab.id
                 ? "text-primary border-b-2 border-primary bg-primary/5 shadow-sm"
                 : "text-muted-foreground hover:text-foreground hover:bg-muted/50"

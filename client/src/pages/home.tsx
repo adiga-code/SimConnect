@@ -38,8 +38,10 @@ export default function Home() {
     <div className="min-h-screen bg-background flex flex-col">
       <Header />
       
-      <main className="flex-1 pb-16">
-        {renderContent()}
+      <main className="flex-1 pb-16 animate-fade-in">
+        <div className="animate-fade-in-up">
+          {renderContent()}
+        </div>
       </main>
       
       <BottomNavigation 

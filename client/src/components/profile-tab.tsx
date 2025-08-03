@@ -91,7 +91,7 @@ export function ProfileTab() {
           </div>
           <Button 
             onClick={handleTopUp}
-            className="w-full bg-primary hover:bg-primary/90 shadow-cyber"
+            className="w-full bg-primary hover:bg-primary/90 shadow-cyber btn-cyber hover-glow"
             data-testid="button-top-up"
           >
             <CreditCard className="h-4 w-4 mr-2" />

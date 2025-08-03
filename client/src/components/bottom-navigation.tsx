@@ -26,7 +26,7 @@ export function BottomNavigation({ activeTab, onTabChange }: BottomNavigationPro
               key={item.id}
               onClick={() => onTabChange(item.id)}
               className={cn(
-                "flex flex-col items-center justify-center transition-all duration-200 relative",
+                "flex flex-col items-center justify-center transition-all duration-200 relative hover-lift",
                 isActive 
                   ? "text-primary" 
                   : "text-muted-foreground hover:text-foreground"

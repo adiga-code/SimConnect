@@ -43,17 +43,17 @@ export function ServicesTab({ searchQuery, onServiceSelect }: ServicesTabProps) 
     return (
       <div className="p-4 space-y-3">
         {[...Array(3)].map((_, i) => (
-          <Card key={i} className="animate-pulse">
+          <Card key={i} className="skeleton animate-pulse">
             <CardContent className="p-4">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 bg-gray-200 dark:bg-gray-700 rounded-xl" />
+                  <div className="w-10 h-10 bg-muted rounded-xl" />
                   <div className="space-y-2">
-                    <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-20" />
-                    <div className="h-3 bg-gray-200 dark:bg-gray-700 rounded w-16" />
+                    <div className="h-4 bg-muted rounded w-20" />
+                    <div className="h-3 bg-muted rounded w-16" />
                   </div>
                 </div>
-                <div className="w-4 h-4 bg-gray-200 dark:bg-gray-700 rounded" />
+                <div className="w-4 h-4 bg-muted rounded" />
               </div>
             </CardContent>
           </Card>
@@ -67,7 +67,7 @@ export function ServicesTab({ searchQuery, onServiceSelect }: ServicesTabProps) 
       {filteredServices.map((service) => (
         <Card
           key={service.id}
-          className="transition-all duration-200 hover:shadow-md cursor-pointer"
+          className="card-hover cursor-pointer animate-fade-in-up"
           onClick={() => onServiceSelect(service)}
           data-testid={`card-service-${service.id}`}
         >

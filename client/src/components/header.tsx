@@ -23,11 +23,11 @@ export function Header() {
   };
 
   return (
-    <header className="sticky top-0 z-50 gradient-cyber backdrop-blur-sm border-b border-cyber-border shadow-cyber">
+    <header className="sticky top-0 z-50 gradient-cyber backdrop-blur-sm border-b border-cyber-border shadow-cyber animate-fade-in">
       <div className="flex items-center justify-between p-4">
-        <h1 className="text-xl font-bold text-cyber-accent" data-testid="app-title">OnlineSim</h1>
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2 bg-primary/10 border border-primary/20 px-3 py-1.5 rounded-lg">
+        <h1 className="text-xl font-bold text-cyber-accent animate-scale-in" data-testid="app-title">OnlineSim</h1>
+        <div className="flex items-center gap-4 animate-fade-in">
+          <div className="flex items-center gap-2 bg-primary/10 border border-primary/20 px-3 py-1.5 rounded-lg hover-lift">
             <Wallet className="h-4 w-4 text-primary" />
             <span 
               className="font-medium text-primary" 
@@ -40,7 +40,7 @@ export function Header() {
             variant="ghost"
             size="icon"
             onClick={toggleTheme}
-            className="bg-secondary/50 hover:bg-secondary border border-cyber-border"
+            className="bg-secondary/50 hover:bg-secondary border border-cyber-border btn-cyber"
             data-testid="button-theme-toggle"
           >
             <Sun className="h-4 w-4 rotate-0 scale-100 transition-all dark:-rotate-90 dark:scale-0" />

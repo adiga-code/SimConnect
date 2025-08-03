@@ -75,7 +75,7 @@ export function CountriesTab({ searchQuery, onCountrySelect }: CountriesTabProps
         <Card
           key={country.id}
           className={cn(
-            "transition-all duration-200 hover:shadow-md cursor-pointer",
+            "card-hover cursor-pointer animate-fade-in-up",
             !country.available && "opacity-50 cursor-not-allowed"
           )}
           onClick={() => country.available && onCountrySelect(country)}
