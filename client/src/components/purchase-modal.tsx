@@ -11,7 +11,7 @@ import type { Country, Service, Order } from "@shared/schema";
 
 interface PurchaseModalProps {
   open: boolean;
-  onOpenChange: (open: boolean) => void;
+  onOpenChange: (open: boolean, success?: boolean) => void;
 }
 
 export function PurchaseModal({ open, onOpenChange }: PurchaseModalProps) {
@@ -84,7 +84,7 @@ export function PurchaseModal({ open, onOpenChange }: PurchaseModalProps) {
         description: `Номер ${order.phoneNumber} готов к использованию`,
       });
       
-      onOpenChange(false);
+      onOpenChange(false, true);
       setSelectedCountryId("");
       setSelectedServiceId("");
     },
