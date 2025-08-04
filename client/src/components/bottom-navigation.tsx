@@ -1,4 +1,4 @@
-import { Home, Phone, History, User } from "lucide-react";
+import { Home, Phone, History, User, HelpCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface BottomNavigationProps {
@@ -11,12 +11,13 @@ export function BottomNavigation({ activeTab, onTabChange }: BottomNavigationPro
     { id: "home", label: "Главная", icon: Home },
     { id: "numbers", label: "Номера", icon: Phone },
     { id: "history", label: "История", icon: History },
+    { id: "faq", label: "FAQ", icon: HelpCircle },
     { id: "profile", label: "Профиль", icon: User },
   ];
 
   return (
     <nav className="fixed bottom-0 left-0 right-0 bg-card/95 backdrop-blur-sm border-t border-cyber-border shadow-cyber z-30">
-      <div className="grid grid-cols-4 h-16">
+      <div className="grid grid-cols-5 h-16">
         {navItems.map((item) => {
           const Icon = item.icon;
           const isActive = activeTab === item.id;

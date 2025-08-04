@@ -4,13 +4,17 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Wallet, Gift, Users, CreditCard, Copy } from "lucide-react";
+import { Wallet, Gift, Users, CreditCard, Copy, Settings } from "lucide-react";
 import { useTelegram } from "@/lib/telegram";
 import { useCopyToClipboard } from "@/lib/copy-utils";
 import { useToast } from "@/hooks/use-toast";
 import type { User } from "@shared/schema";
 
-export function ProfileTab() {
+interface ProfileTabProps {
+  onOpenAdmin?: () => void;
+}
+
+export function ProfileTab({ onOpenAdmin }: ProfileTabProps = {}) {
   const [promoCode, setPromoCode] = useState("");
   const [refLink] = useState("https://t.me/onlinesim_bot?start=ref123456");
   const { user: telegramUser } = useTelegram();
@@ -178,6 +182,22 @@ export function ProfileTab() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Admin Panel Access */}
+      {user?.isAdmin && onOpenAdmin && (
+        <Card className="border-primary/20 bg-primary/5">
+          <CardContent className="p-4">
+            <Button
+              onClick={onOpenAdmin}
+              className="w-full bg-primary hover:bg-primary/90 btn-cyber hover-glow"
+              data-testid="button-open-admin"
+            >
+              <Settings className="h-4 w-4 mr-2" />
+              Административная панель
+            </Button>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Statistics */}
       <Card>

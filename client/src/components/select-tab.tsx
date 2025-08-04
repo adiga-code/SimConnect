@@ -6,6 +6,8 @@ import { TabNavigation } from "@/components/tab-navigation";
 import { CountriesTab } from "@/components/countries-tab";
 import { ServicesTab } from "@/components/services-tab";
 import { PurchaseModal } from "@/components/purchase-modal";
+import { ActionButtons } from "@/components/action-buttons";
+import { InstructionsModal } from "@/components/instructions-modal";
 import type { Country, Service } from "@shared/schema";
 
 const tabs = [
@@ -15,12 +17,14 @@ const tabs = [
 
 interface SelectTabProps {
   onPurchaseSuccess?: () => void;
+  onOpenFAQ?: () => void;
 }
 
-export function SelectTab({ onPurchaseSuccess }: SelectTabProps) {
+export function SelectTab({ onPurchaseSuccess, onOpenFAQ }: SelectTabProps) {
   const [activeTab, setActiveTab] = useState("countries");
   const [searchQuery, setSearchQuery] = useState("");
   const [isPurchaseModalOpen, setIsPurchaseModalOpen] = useState(false);
+  const [isInstructionsModalOpen, setIsInstructionsModalOpen] = useState(false);
 
   const handleCountrySelect = (country: Country) => {
     console.log("Selected country:", country);
@@ -62,6 +66,12 @@ export function SelectTab({ onPurchaseSuccess }: SelectTabProps) {
 
   return (
     <div className="flex flex-col h-full animate-fade-in">
+      {/* Action Buttons */}
+      <ActionButtons 
+        onOpenInstructions={() => setIsInstructionsModalOpen(true)}
+        onOpenFAQ={() => onOpenFAQ?.()}
+      />
+      
       <SearchBar 
         value={searchQuery}
         onChange={setSearchQuery}
@@ -95,6 +105,15 @@ export function SelectTab({ onPurchaseSuccess }: SelectTabProps) {
       <PurchaseModal 
         open={isPurchaseModalOpen}
         onOpenChange={handlePurchaseModalClose}
+      />
+
+      <InstructionsModal
+        open={isInstructionsModalOpen}
+        onOpenChange={setIsInstructionsModalOpen}
+        onOpenFAQ={() => {
+          setIsInstructionsModalOpen(false);
+          onOpenFAQ?.();
+        }}
       />
     </div>
   );

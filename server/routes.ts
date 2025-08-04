@@ -1,7 +1,7 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { insertOrderSchema, insertMessageSchema, insertUserSchema } from "@shared/schema";
+import { insertOrderSchema, insertMessageSchema, insertUserSchema, insertSettingSchema, insertStatisticSchema } from "@shared/schema";
 import { z } from "zod";
 
 export async function registerRoutes(app: Express): Promise<Server> {
@@ -153,6 +153,69 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(201).json(user);
     } catch (error) {
       res.status(500).json({ message: "Failed to create user" });
+    }
+  });
+
+  // Settings routes (admin only)
+  app.get("/api/settings", async (_req, res) => {
+    try {
+      const settings = await storage.getSettings();
+      res.json(settings);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch settings" });
+    }
+  });
+
+  app.get("/api/settings/:key", async (req, res) => {
+    try {
+      const setting = await storage.getSetting(req.params.key);
+      if (!setting) {
+        return res.status(404).json({ message: "Setting not found" });
+      }
+      res.json(setting);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch setting" });
+    }
+  });
+
+  app.put("/api/settings/:key", async (req, res) => {
+    try {
+      const { value } = req.body;
+      if (!value) {
+        return res.status(400).json({ message: "Value is required" });
+      }
+      
+      const setting = await storage.updateSetting(req.params.key, value);
+      res.json(setting);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to update setting" });
+    }
+  });
+
+  // Statistics routes (admin only)
+  app.get("/api/statistics", async (req, res) => {
+    try {
+      const { startDate, endDate } = req.query;
+      const statistics = startDate && endDate 
+        ? await storage.getStatisticsByDateRange(startDate as string, endDate as string)
+        : await storage.getStatistics();
+      res.json(statistics);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch statistics" });
+    }
+  });
+
+  app.post("/api/statistics", async (req, res) => {
+    try {
+      const validation = insertStatisticSchema.safeParse(req.body);
+      if (!validation.success) {
+        return res.status(400).json({ message: "Invalid statistic data", errors: validation.error.issues });
+      }
+
+      const statistic = await storage.createOrUpdateStatistic(validation.data);
+      res.status(201).json(statistic);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to create/update statistic" });
     }
   });
 

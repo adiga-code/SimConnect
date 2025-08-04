@@ -1,4 +1,4 @@
-import { type Country, type Service, type Order, type Message, type User, type InsertCountry, type InsertService, type InsertOrder, type InsertMessage, type InsertUser } from "@shared/schema";
+import { type Country, type Service, type Order, type Message, type User, type Setting, type Statistic, type InsertCountry, type InsertService, type InsertOrder, type InsertMessage, type InsertUser, type InsertSetting, type InsertStatistic } from "@shared/schema";
 import { randomUUID } from "crypto";
 
 export interface IStorage {
@@ -24,6 +24,16 @@ export interface IStorage {
   getUser(telegramId: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
   updateUserBalance(telegramId: string, balance: number): Promise<User | undefined>;
+  
+  // Settings
+  getSettings(): Promise<Setting[]>;
+  getSetting(key: string): Promise<Setting | undefined>;
+  updateSetting(key: string, value: string): Promise<Setting>;
+  
+  // Statistics
+  getStatistics(): Promise<Statistic[]>;
+  getStatisticsByDateRange(startDate: string, endDate: string): Promise<Statistic[]>;
+  createOrUpdateStatistic(statistic: InsertStatistic): Promise<Statistic>;
 }
 
 export class MemStorage implements IStorage {
@@ -32,6 +42,8 @@ export class MemStorage implements IStorage {
   private orders: Map<string, Order>;
   private messages: Map<string, Message>;
   private users: Map<string, User>;
+  private settings: Map<string, Setting>;
+  private statistics: Map<string, Statistic>;
 
   constructor() {
     this.countries = new Map();
@@ -39,6 +51,8 @@ export class MemStorage implements IStorage {
     this.orders = new Map();
     this.messages = new Map();
     this.users = new Map();
+    this.settings = new Map();
+    this.statistics = new Map();
     
     this.initializeMockData();
   }
@@ -54,7 +68,13 @@ export class MemStorage implements IStorage {
 
     countriesData.forEach(country => {
       const id = randomUUID();
-      this.countries.set(id, { ...country, id });
+      this.countries.set(id, { 
+        ...country, 
+        id,
+        available: country.available ?? true,
+        numbersCount: country.numbersCount ?? 0,
+        status: country.status ?? "available"
+      });
     });
 
     // Initialize services
@@ -66,7 +86,11 @@ export class MemStorage implements IStorage {
 
     servicesData.forEach(service => {
       const id = randomUUID();
-      this.services.set(id, { ...service, id });
+      this.services.set(id, { 
+        ...service, 
+        id,
+        available: service.available ?? true 
+      });
     });
 
     // Initialize sample user
@@ -74,9 +98,16 @@ export class MemStorage implements IStorage {
       telegramId: "sample_user",
       username: "user",
       balance: 12550, // 125.50 rubles in kopecks
+      isAdmin: true,
     };
     const userId = randomUUID();
-    this.users.set(sampleUser.telegramId, { ...sampleUser, id: userId });
+    this.users.set(sampleUser.telegramId, { 
+      ...sampleUser, 
+      id: userId,
+      username: sampleUser.username ?? null,
+      balance: sampleUser.balance ?? 0,
+      isAdmin: sampleUser.isAdmin ?? false
+    });
 
     // Initialize sample orders
     const countryIds = Array.from(this.countries.keys());
@@ -103,7 +134,12 @@ export class MemStorage implements IStorage {
 
     ordersData.forEach(order => {
       const id = randomUUID();
-      const orderWithId = { ...order, id, createdAt: new Date() };
+      const orderWithId = { 
+        ...order, 
+        id, 
+        createdAt: new Date(),
+        status: order.status ?? "active"
+      };
       this.orders.set(id, orderWithId);
     });
 
@@ -124,7 +160,39 @@ export class MemStorage implements IStorage {
 
     messagesData.forEach(message => {
       const id = randomUUID();
-      this.messages.set(id, { ...message, id, receivedAt: new Date() });
+      this.messages.set(id, { 
+        ...message, 
+        id, 
+        receivedAt: new Date(),
+        code: message.code ?? null
+      });
+    });
+
+    // Initialize settings
+    const settingsData = [
+      { key: "commission_percent", value: "5", description: "Комиссия в процентах" },
+      { key: "min_balance", value: "100", description: "Минимальный баланс в копейках" },
+      { key: "support_url", value: "https://t.me/support", description: "Ссылка на техподдержку" },
+      { key: "telegram_channel", value: "https://t.me/onlinesim_channel", description: "Ссылка на канал Telegram" },
+    ];
+
+    settingsData.forEach(setting => {
+      const id = randomUUID();
+      this.settings.set(setting.key, { ...setting, id, updatedAt: new Date() });
+    });
+
+    // Initialize statistics
+    const today = new Date().toISOString().split('T')[0];
+    const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+    
+    const statisticsData = [
+      { date: today, totalOrders: 45, totalRevenue: 125000, newUsers: 12, activeUsers: 89 },
+      { date: yesterday, totalOrders: 38, totalRevenue: 98500, newUsers: 8, activeUsers: 76 },
+    ];
+
+    statisticsData.forEach(stat => {
+      const id = randomUUID();
+      this.statistics.set(stat.date, { ...stat, id });
     });
   }
 
@@ -162,6 +230,7 @@ export class MemStorage implements IStorage {
       ...insertOrder, 
       id, 
       createdAt: new Date(),
+      status: insertOrder.status ?? "active"
     };
     this.orders.set(id, order);
     return order;
@@ -184,6 +253,7 @@ export class MemStorage implements IStorage {
       ...insertMessage, 
       id, 
       receivedAt: new Date(),
+      code: insertMessage.code ?? null
     };
     this.messages.set(id, message);
     return message;
@@ -195,7 +265,13 @@ export class MemStorage implements IStorage {
 
   async createUser(insertUser: InsertUser): Promise<User> {
     const id = randomUUID();
-    const user: User = { ...insertUser, id };
+    const user: User = { 
+      ...insertUser, 
+      id,
+      username: insertUser.username ?? null,
+      balance: insertUser.balance ?? 0,
+      isAdmin: insertUser.isAdmin ?? false
+    };
     this.users.set(insertUser.telegramId, user);
     return user;
   }
@@ -208,6 +284,60 @@ export class MemStorage implements IStorage {
       return user;
     }
     return undefined;
+  }
+
+  async getSettings(): Promise<Setting[]> {
+    return Array.from(this.settings.values());
+  }
+
+  async getSetting(key: string): Promise<Setting | undefined> {
+    return this.settings.get(key);
+  }
+
+  async updateSetting(key: string, value: string): Promise<Setting> {
+    const existing = this.settings.get(key);
+    if (existing) {
+      existing.value = value;
+      existing.updatedAt = new Date();
+      this.settings.set(key, existing);
+      return existing;
+    }
+    
+    const id = randomUUID();
+    const setting: Setting = { id, key, value, description: null, updatedAt: new Date() };
+    this.settings.set(key, setting);
+    return setting;
+  }
+
+  async getStatistics(): Promise<Statistic[]> {
+    return Array.from(this.statistics.values()).sort((a, b) => b.date.localeCompare(a.date));
+  }
+
+  async getStatisticsByDateRange(startDate: string, endDate: string): Promise<Statistic[]> {
+    return Array.from(this.statistics.values())
+      .filter(stat => stat.date >= startDate && stat.date <= endDate)
+      .sort((a, b) => b.date.localeCompare(a.date));
+  }
+
+  async createOrUpdateStatistic(insertStatistic: InsertStatistic): Promise<Statistic> {
+    const existing = this.statistics.get(insertStatistic.date);
+    if (existing) {
+      Object.assign(existing, insertStatistic);
+      this.statistics.set(insertStatistic.date, existing);
+      return existing;
+    }
+    
+    const id = randomUUID();
+    const statistic: Statistic = { 
+      ...insertStatistic, 
+      id,
+      totalOrders: insertStatistic.totalOrders ?? 0,
+      totalRevenue: insertStatistic.totalRevenue ?? 0,
+      newUsers: insertStatistic.newUsers ?? 0,
+      activeUsers: insertStatistic.activeUsers ?? 0
+    };
+    this.statistics.set(insertStatistic.date, statistic);
+    return statistic;
   }
 }
 
