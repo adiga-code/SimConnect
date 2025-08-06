@@ -1,0 +1,119 @@
+version: '3.8'
+
+services:
+  # Frontend (React)
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: onlinesim_frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - REACT_APP_API_URL=http://localhost:8000/api
+      - REACT_APP_SSE_URL=http://localhost:8000/api/events
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    depends_on:
+      - backend
+    restart: unless-stopped
+    networks:
+      - onlinesim_network
+
+  # Backend (FastAPI)
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: onlinesim_backend
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=sqlite:///./onlinesim.db
+      - SECRET_KEY=${SECRET_KEY:-your-secret-key-change-this-in-production}
+      - DEBUG=${DEBUG:-False}
+      - SMS_PROVIDER=${SMS_PROVIDER:-dummy}
+      - SMS_API_KEY=${SMS_API_KEY:-}
+      - SMS_API_URL=${SMS_API_URL:-https://api.sms-service.com}
+      - SMS_WEBHOOK_SECRET=${SMS_WEBHOOK_SECRET:-webhook-secret-key}
+      - ORDER_TIMEOUT_MINUTES=${ORDER_TIMEOUT_MINUTES:-15}
+      - API_TIMEOUT_SECONDS=${API_TIMEOUT_SECONDS:-30}
+      - RETRY_ATTEMPTS=${RETRY_ATTEMPTS:-3}
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - WEBAPP_URL=${WEBAPP_URL:-http://localhost}
+      - CORS_ORIGINS=http://localhost:3000,http://localhost
+      - HOST=0.0.0.0
+      - PORT=8000
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    volumes:
+      - ./backend:/app
+      - backend_data:/app/data
+    restart: unless-stopped
+    networks:
+      - onlinesim_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Telegram Bot
+  telegram_bot:
+    build:
+      context: ./telegram-bot
+      dockerfile: Dockerfile
+    container_name: onlinesim_telegram_bot
+    environment:
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - WEBAPP_URL=${WEBAPP_URL:-http://localhost}
+    volumes:
+      - ./telegram-bot:/app
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - onlinesim_network
+
+  # Nginx (Reverse Proxy)
+  nginx:
+    image: nginx:alpine
+    container_name: onlinesim_nginx
+    ports:
+      - "80:80"
+      - "443:443"  # For HTTPS (configure SSL certificates)
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf
+      # - ./nginx/ssl:/etc/ssl  # Uncomment for SSL certificates
+    depends_on:
+      - frontend
+      - backend
+    restart: unless-stopped
+    networks:
+      - onlinesim_network
+
+  # Database (PostgreSQL for production, optional)
+  # postgres:
+  #   image: postgres:15-alpine
+  #   container_name: onlinesim_postgres
+  #   environment:
+  #     - POSTGRES_DB=onlinesim
+  #     - POSTGRES_USER=onlinesim_user
+  #     - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+  #   volumes:
+  #     - postgres_data:/var/lib/postgresql/data
+  #   ports:
+  #     - "5432:5432"
+  #   restart: unless-stopped
+  #   networks:
+  #     - onlinesim_network
+
+volumes:
+  backend_data:
+  # postgres_data:  # Uncomment for PostgreSQL
+
+networks:
+  onlinesim_network:
+    driver: bridge
