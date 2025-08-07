@@ -1,11 +1,10 @@
 version: '3.8'
 
-services:  # ← Эта секция обязательна!
-  # Frontend (React)
+services:
   frontend:
     build:
-      context: ./frontend
-      dockerfile: Dockerfile
+      context: .              # ← Изменить на корневую папку
+      dockerfile: ./frontend/Dockerfile
     container_name: onlinesim_frontend
     environment:
       - NODE_ENV=production
@@ -13,7 +12,6 @@ services:  # ← Эта секция обязательна!
       - onlinesim_network
     restart: unless-stopped
 
-  # Backend (FastAPI)
   backend:
     build:
       context: ./backend
@@ -32,7 +30,6 @@ services:  # ← Эта секция обязательна!
       timeout: 10s
       retries: 3
 
-  # Telegram Bot
   telegram_bot:
     build:
       context: ./telegram-bot
@@ -47,7 +44,6 @@ services:  # ← Эта секция обязательна!
     networks:
       - onlinesim_network
 
-  # Nginx (Reverse Proxy)
   nginx:
     image: nginx:alpine
     container_name: onlinesim_nginx

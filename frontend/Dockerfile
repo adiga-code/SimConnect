@@ -10,17 +10,24 @@ COPY package*.json ./
 RUN npm ci --only=production=false
 
 # Копирование конфигурационных файлов
-COPY vite.config.js ./
-COPY .env.production ./.env
+COPY vite.config.ts ./
+COPY tsconfig.json ./
+COPY tailwind.config.ts ./
+COPY postcss.config.js ./
+COPY components.json ./
+COPY drizzle.config.ts ./
+
+# Переменные окружения для продакшена
+RUN echo "VITE_API_URL=https://app2.hezh-digital.ru/api" > .env && \
+    echo "VITE_SSE_URL=https://app2.hezh-digital.ru/api/events" >> .env && \
+    echo "VITE_WEBAPP_URL=https://app2.hezh-digital.ru" >> .env
 
 # Копирование исходного кода
 COPY src/ ./src/
-COPY public/ ./public/
 COPY index.html ./
 
-# Копирование shared папки если есть
-COPY ../shared/ ./shared/ 2>/dev/null || true
-COPY ../attached_assets/ ./attached_assets/ 2>/dev/null || true
+# Копирование shared папки (находится на уровень выше)
+COPY ../shared/ ./shared/
 
 # Сборка приложения
 RUN npm run build
