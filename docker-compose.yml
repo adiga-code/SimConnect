@@ -17,7 +17,7 @@ services:
       dockerfile: Dockerfile
     container_name: onlinesim_backend
     env_file:
-      - .env
+      - backend/.env
     volumes:
       - backend_data:/app/data
     restart: unless-stopped
