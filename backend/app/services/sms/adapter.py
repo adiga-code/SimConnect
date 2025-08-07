@@ -1,124 +1,90 @@
-from abc import ABC, abstractmethod
-from typing import Optional, Dict, Any
-from dataclasses import dataclass
 import logging
+from typing import Optional, Dict, Any
+from .providers.base_provider import BaseSMSProvider
+from .providers.dummy_provider import DummyProvider
 
 logger = logging.getLogger(__name__)
 
-@dataclass
-class SMSOrderResult:
-    """Результат заказа номера от SMS сервиса"""
-    success: bool
-    phone_number: Optional[str] = None
-    external_order_id: Optional[str] = None
-    error_message: Optional[str] = None
-    balance: Optional[float] = None
-
-@dataclass
-class SMSStatusResult:
-    """Результат проверки статуса заказа"""
-    success: bool
-    status: str  # waiting, received, expired, cancelled
-    message_text: Optional[str] = None
-    code: Optional[str] = None
-    error_message: Optional[str] = None
-
-class SMSAdapter(ABC):
-    """Абстрактный адаптер для работы с SMS сервисами"""
+class SMSAdapter:
+    """Адаптер для работы с различными SMS провайдерами"""
     
-    def __init__(self, api_key: str, api_url: str, **kwargs):
+    def __init__(self, provider_name: str = "dummy", api_key: Optional[str] = None):
+        self.provider_name = provider_name.lower()
         self.api_key = api_key
-        self.api_url = api_url
-        self.config = kwargs
+        self.provider = self._initialize_provider()
         
-    @abstractmethod
-    async def get_balance(self) -> float:
-        """Получить баланс аккаунта"""
-        pass
+    def _initialize_provider(self) -> BaseSMSProvider:
+        """Инициализировать SMS провайдера"""
+        try:
+            if self.provider_name == "dummy":
+                logger.info("Initializing dummy SMS provider")
+                return DummyProvider(api_key=self.api_key)
+            else:
+                logger.error(f"Unknown SMS provider: {self.provider_name}")
+                # Возвращаем dummy provider как fallback
+                logger.info("Falling back to dummy SMS provider")
+                return DummyProvider(api_key=self.api_key)
+                
+        except Exception as e:
+            logger.error(f"Failed to initialize SMS provider {self.provider_name}: {e}")
+            # Возвращаем dummy provider как fallback
+            logger.info("Falling back to dummy SMS provider")
+            return DummyProvider(api_key=self.api_key)
     
-    @abstractmethod
-    async def get_available_numbers(self, country_code: str, service_code: str) -> int:
-        """Получить количество доступных номеров"""
-        pass
+    async def get_number(self, country_id: str, service_id: str) -> Optional[Dict[str, Any]]:
+        """Получить номер телефона"""
+        try:
+            return await self.provider.get_number(country_id, service_id)
+        except Exception as e:
+            logger.error(f"Error getting number: {e}")
+            return None
     
-    @abstractmethod
-    async def order_number(self, country_code: str, service_code: str) -> SMSOrderResult:
-        """Заказать номер телефона"""
-        pass
+    async def get_sms(self, order_id: str) -> Optional[Dict[str, Any]]:
+        """Получить SMS сообщения"""
+        try:
+            return await self.provider.get_sms(order_id)
+        except Exception as e:
+            logger.error(f"Error getting SMS: {e}")
+            return None
     
-    @abstractmethod
-    async def get_sms(self, external_order_id: str) -> SMSStatusResult:
-        """Получить SMS по ID заказа"""
-        pass
+    async def cancel_number(self, order_id: str) -> bool:
+        """Отменить номер"""
+        try:
+            return await self.provider.cancel_number(order_id)
+        except Exception as e:
+            logger.error(f"Error cancelling number: {e}")
+            return False
     
-    @abstractmethod
-    async def cancel_order(self, external_order_id: str) -> bool:
-        """Отменить заказ"""
-        pass
+    async def get_balance(self) -> Optional[float]:
+        """Получить баланс"""
+        try:
+            return await self.provider.get_balance()
+        except Exception as e:
+            logger.error(f"Error getting balance: {e}")
+            return None
     
-    @abstractmethod
-    async def get_order_status(self, external_order_id: str) -> str:
-        """Получить статус заказа"""
-        pass
+    async def get_countries(self) -> Optional[Dict[str, Any]]:
+        """Получить список стран"""
+        try:
+            return await self.provider.get_countries()
+        except Exception as e:
+            logger.error(f"Error getting countries: {e}")
+            return None
     
-    def extract_code_from_message(self, message_text: str) -> Optional[str]:
-        """Извлечь код из SMS сообщения"""
-        import re
-        
-        # Паттерны для поиска кода
-        patterns = [
-            r'\b(\d{4,6})\b',  # 4-6 цифр подряд
-            r'код:?\s*(\d+)',  # "код: 12345"
-            r'code:?\s*(\d+)',  # "code: 12345"
-            r'verification:?\s*(\d+)',  # "verification: 12345"
-        ]
-        
-        for pattern in patterns:
-            match = re.search(pattern, message_text, re.IGNORECASE)
-            if match:
-                code = match.group(1)
-                if 4 <= len(code) <= 6:  # Фильтруем по длине
-                    return code
-        
-        return None
-    
-    def map_service_name_to_code(self, service_name: str) -> str:
-        """Преобразовать название сервиса в код для API"""
-        mapping = {
-            "telegram": "tg",
-            "whatsapp": "wa", 
-            "discord": "ds",
-            "viber": "vi",
-            "signal": "sg"
-        }
-        return mapping.get(service_name.lower(), service_name.lower())
-    
-    def map_country_code(self, country_code: str) -> str:
-        """Преобразовать код страны в формат SMS сервиса"""
-        # Большинство сервисов используют стандартные коды
-        return country_code.lower()
+    async def get_services(self) -> Optional[Dict[str, Any]]:
+        """Получить список сервисов"""
+        try:
+            return await self.provider.get_services()
+        except Exception as e:
+            logger.error(f"Error getting services: {e}")
+            return None
 
+# Совместимость со старым кодом
 class SMSProviderFactory:
-    """Фабрика для создания SMS провайдеров"""
+    """Фабрика SMS провайдеров (для совместимости)"""
     
-    _providers = {}
-    
-    @classmethod
-    def register_provider(cls, name: str, provider_class):
-        """Зарегистрировать провайдера"""
-        cls._providers[name] = provider_class
-        logger.info(f"Registered SMS provider: {name}")
-    
-    @classmethod
-    def create_provider(cls, provider_name: str, **config) -> SMSAdapter:
-        """Создать экземпляр провайдера"""
-        if provider_name not in cls._providers:
-            raise ValueError(f"Unknown SMS provider: {provider_name}")
-        
-        provider_class = cls._providers[provider_name]
-        return provider_class(**config)
-    
-    @classmethod
-    def get_available_providers(cls) -> list:
-        """Получить список доступных провайдеров"""
-        return list(cls._providers.keys())
+    @staticmethod
+    def create_provider(provider_name: str = "dummy", api_key: Optional[str] = None, **kwargs) -> SMSAdapter:
+        """Создать SMS провайдера"""
+        # Игнорируем лишние kwargs для совместимости
+        return SMSAdapter(provider_name=provider_name, api_key=api_key)

@@ -1,107 +1,101 @@
-import asyncio
+from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
+import os
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
-
 from .core.config import settings
-from .core.database import create_tables
 from .api.routes import router
-from .utils.telegram import create_telegram_auth_middleware
-from .services.order_service import start_cleanup_task
-from .data_init import initialize_data
+from .services.sms.adapter import SMSAdapter
 
 # Настройка логирования
-logging.basicConfig(
-    level=getattr(logging, settings.log_level.upper()),
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-)
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Глобальная переменная для SMS адаптера
+sms_adapter = None
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Жизненный цикл приложения"""
-    logger.info("Starting OnlineSim FastAPI application...")
+    """Управление жизненным циклом приложения"""
+    global sms_adapter
     
-    # Создание таблиц БД
-    create_tables()
-    logger.info("Database tables created")
-    
-    # Инициализация начальных данных
-    await initialize_data()
-    logger.info("Initial data loaded")
-    
-    # Запуск фоновых задач
-    cleanup_task = asyncio.create_task(start_cleanup_task())
-    logger.info("Background tasks started")
+    # Startup
+    try:
+        logger.info("Initializing SMS adapter...")
+        sms_adapter = SMSAdapter(
+            provider_name=getattr(settings, 'SMS_PROVIDER', 'dummy'),
+            api_key=getattr(settings, 'SMS_API_KEY', None)
+        )
+        logger.info("SMS adapter initialized successfully")
+    except Exception as e:
+        logger.error(f"Failed to initialize SMS adapter: {e}")
+        # Используем dummy provider как fallback
+        sms_adapter = SMSAdapter(provider_name="dummy")
     
     yield
     
-    # Завершение работы
-    logger.info("Shutting down OnlineSim application...")
-    cleanup_task.cancel()
-    try:
-        await cleanup_task
-    except asyncio.CancelledError:
-        pass
+    # Shutdown
+    logger.info("Shutting down...")
 
 # Создание FastAPI приложения
 app = FastAPI(
     title="OnlineSim API",
-    description="API для сервиса покупки временных номеров телефонов",
+    description="API для получения SMS на виртуальные номера",
     version="1.0.0",
-    docs_url="/docs" if settings.debug else None,
-    redoc_url="/redoc" if settings.debug else None,
     lifespan=lifespan
 )
 
 # CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.cors_origins,
+    allow_origins=["*"],  # В Codespaces разрешаем все origins
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE"],
+    allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Telegram Auth middleware
-app.add_middleware("http", create_telegram_auth_middleware())
+# Подключение маршрутов API
+app.include_router(router, prefix="/api")
 
-# Глобальный обработчик исключений
-@app.exception_handler(Exception)
-async def global_exception_handler(request: Request, exc: Exception):
-    logger.error(f"Global exception handler: {exc}", exc_info=True)
-    return JSONResponse(
-        status_code=500,
-        content={"detail": "Internal server error"}
-    )
-
-# Подключение роутов
-app.include_router(router)
-
-# Основные endpoints
-@app.get("/")
-async def root():
-    """Корневой endpoint"""
-    return {
-        "message": "OnlineSim API",
-        "version": "1.0.0",
-        "status": "running"
-    }
+# Статические файлы (фронтенд)
+if os.path.exists("/app/frontend/dist"):
+    app.mount("/static", StaticFiles(directory="/app/frontend/dist"), name="static")
+    
+    @app.get("/")
+    async def read_root():
+        """Главная страница - возвращаем index.html фронтенда"""
+        return FileResponse("/app/frontend/dist/index.html")
+    
+    @app.get("/{full_path:path}")
+    async def catch_all(full_path: str):
+        """Перенаправляем все остальные запросы на index.html для SPA"""
+        # Проверяем, не запрос ли это к API
+        if full_path.startswith("api/"):
+            return {"error": "Not found"}
+        
+        # Проверяем, существует ли файл
+        file_path = f"/app/frontend/dist/{full_path}"
+        if os.path.exists(file_path) and os.path.isfile(file_path):
+            return FileResponse(file_path)
+        
+        # Для всех остальных запросов возвращаем index.html
+        return FileResponse("/app/frontend/dist/index.html")
 
 @app.get("/health")
-async def health():
-    """Health check endpoint"""
-    return {"status": "healthy"}
+async def health_check():
+    """Проверка состояния сервиса"""
+    return {
+        "status": "ok",
+        "sms_provider": settings.SMS_PROVIDER if sms_adapter else "not initialized"
+    }
 
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(
-        "main:app",
-        host=settings.host,
-        port=settings.port,
-        reload=settings.debug,
-        log_level=settings.log_level.lower()
-    )
+def get_sms_adapter() -> SMSAdapter:
+    """Получить экземпляр SMS адаптера"""
+    global sms_adapter
+    if sms_adapter is None:
+        # Создаем fallback адаптер если основной не инициализирован
+        sms_adapter = SMSAdapter(provider_name="dummy")
+    return sms_adapter

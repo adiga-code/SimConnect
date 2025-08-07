@@ -49,7 +49,7 @@ class SMSValidator:
         clean_number = re.sub(r'[^\d+]', '', phone_number)
         
         # Должен начинаться с + и содержать от 10 до 15 цифр
-        pattern = r'^\+\d{10,15}
+        pattern = r'^\+\d{10,15}'
         is_valid = bool(re.match(pattern, clean_number))
         
         if not is_valid:

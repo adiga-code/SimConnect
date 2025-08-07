@@ -28,6 +28,13 @@ class Settings(BaseSettings):
     telegram_webhook_url: str = ""
     webapp_url: str = "http://localhost:3000"
     
+    # CORS
+    @property
+    def CORS_ORIGINS(self) -> List[str]:
+        """Получить список разрешенных CORS origins"""
+        origins = os.getenv("CORS_ORIGINS", "http://localhost:5173,http://localhost:3000")
+        return [origin.strip() for origin in origins.split(",") if origin.strip()]
+
     # Server
     host: str = "0.0.0.0"
     port: int = 8000
@@ -41,3 +48,4 @@ class Settings(BaseSettings):
         case_sensitive = False
 
 settings = Settings()
+
