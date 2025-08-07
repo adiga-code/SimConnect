@@ -1,5 +1,7 @@
 version: '3.8'
-services:
+
+services:  # ← Эта секция обязательна!
+  # Frontend (React)
   frontend:
     build:
       context: ./frontend
@@ -11,24 +13,26 @@ services:
       - onlinesim_network
     restart: unless-stopped
 
-backend:
-  build:
-    context: ./backend
-    dockerfile: Dockerfile
-  container_name: onlinesim_backend
-  env_file:
-    - ./backend/.env  # Добавить ./ в начало
-  volumes:
-    - backend_data:/app/data
-  restart: unless-stopped
-  networks:
-    - onlinesim_network
-  healthcheck:
-    test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
-    interval: 30s
-    timeout: 10s
-    retries: 3
+  # Backend (FastAPI)
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: onlinesim_backend
+    env_file:
+      - .env
+    volumes:
+      - backend_data:/app/data
+    restart: unless-stopped
+    networks:
+      - onlinesim_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
+  # Telegram Bot
   telegram_bot:
     build:
       context: ./telegram-bot
@@ -43,6 +47,7 @@ backend:
     networks:
       - onlinesim_network
 
+  # Nginx (Reverse Proxy)
   nginx:
     image: nginx:alpine
     container_name: onlinesim_nginx
