@@ -1,21 +1,24 @@
-# Telegram Bot Dockerfile
 FROM python:3.11-slim
 
 WORKDIR /app
 
-# Копирование requirements и установка зависимостей
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements and install dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Копирование бота
+# Copy bot code
 COPY . .
 
-# Создание пользователя без прав root
+# Create non-root user
 RUN adduser --disabled-password --gecos '' botuser && chown -R botuser /app
 USER botuser
 
-# Переменные окружения
+# Environment variables
 ENV PYTHONUNBUFFERED=1
 
-# Команда запуска
+# Command
 CMD ["python", "bot.py"]

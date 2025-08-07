@@ -1,45 +1,29 @@
-services:
-  frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
-    ports:
-      - "5173:5173"
-    volumes:
-      - ./frontend:/app
-      - /app/node_modules
-    environment:
-      - NODE_ENV=development
-    profiles:
-      - dev
+version: '3.8'
 
+services:
   backend:
     build:
       context: .
       dockerfile: backend/Dockerfile
+    container_name: onlinesim_backend
     ports:
-      - "8000:8000"
-    environment:
-      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
-      - WEBAPP_URL=${WEBAPP_URL:-http://localhost:5173}
-      - SECRET_KEY=${SECRET_KEY:-your-secret-key-here}
-      - SMS_PROVIDER=${SMS_PROVIDER:-dummy}
-      - SMS_API_KEY=${SMS_API_KEY:-}
-      - SMS_WEBHOOK_SECRET=${SMS_WEBHOOK_SECRET:-}
+      - "9080:8000"  # Второй проект на порту 9080
+    env_file:
+      - .env
     volumes:
-      - ./backend:/app/backend
-      - ./shared:/app/shared
+      - backend_data:/app/data
     restart: unless-stopped
 
-  nginx:
-    image: nginx:alpine
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./nginx.conf:/etc/nginx/nginx.conf
-      - ./frontend/dist:/usr/share/nginx/html
+  telegram_bot:
+    build:
+      context: ./telegram-bot
+      dockerfile: Dockerfile
+    container_name: onlinesim_telegram_bot
+    env_file:
+      - .env
     depends_on:
       - backend
-    profiles:
-      - prod
+    restart: unless-stopped
+
+volumes:
+  backend_data:
