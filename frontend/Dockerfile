@@ -1,51 +1,58 @@
-# Frontend Dockerfile
-FROM node:18-alpine AS build
+# Build stage for frontend
+FROM node:18-alpine as frontend-build
+
+WORKDIR /app/frontend
+
+# Copy frontend package files
+COPY frontend/package*.json ./
+RUN npm install
+
+# Copy frontend source
+COPY frontend/ ./
+
+# Build frontend
+RUN npm run build
+
+# Build stage for backend
+FROM python:3.11-slim as backend-build
 
 WORKDIR /app
 
-# Копирование package.json и package-lock.json
-COPY package*.json ./
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    gcc \
+    && rm -rf /var/lib/apt/lists/*
 
-# Установка зависимостей
-RUN npm ci --only=production=false
+# Copy backend requirements
+COPY backend/requirements.txt ./requirements.txt
 
-# Копирование конфигурационных файлов
-COPY vite.config.ts ./
-COPY tsconfig.json ./
-COPY tailwind.config.ts ./
-COPY postcss.config.js ./
-COPY components.json ./
-COPY drizzle.config.ts ./
+# Install Python dependencies
+RUN pip install --no-cache-dir -r requirements.txt
 
-# Переменные окружения для продакшена
-RUN echo "VITE_API_URL=https://app2.hezh-digital.ru/api" > .env && \
-    echo "VITE_SSE_URL=https://app2.hezh-digital.ru/api/events" >> .env && \
-    echo "VITE_WEBAPP_URL=https://app2.hezh-digital.ru" >> .env
+# Production stage
+FROM python:3.11-slim
 
-# Копирование исходного кода
-COPY src/ ./src/
-COPY index.html ./
+WORKDIR /app
 
-# Копирование shared папки (находится на уровень выше)
-COPY ../shared/ ./shared/
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    && rm -rf /var/lib/apt/lists/*
 
-# Сборка приложения
-RUN npm run build
+# Copy Python dependencies from build stage
+COPY --from=backend-build /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
+COPY --from=backend-build /usr/local/bin /usr/local/bin
 
-# Production стадия
-FROM nginx:alpine
+# Copy backend code
+COPY backend/ ./backend/
 
-# Удаление дефолтной конфигурации nginx
-RUN rm /etc/nginx/conf.d/default.conf
+# Copy built frontend
+COPY --from=frontend-build /app/frontend/dist ./frontend/dist/
 
-# Копирование собранного приложения
-COPY --from=build /app/dist /usr/share/nginx/html
+# Copy shared files if they exist
+COPY shared/ ./shared/ 2>/dev/null || true
 
-# Копирование конфигурации nginx
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+# Expose port
+EXPOSE 8000
 
-# Порт
-EXPOSE 3000
-
-# Команда запуска
-CMD ["nginx", "-g", "daemon off;"]
+# Start the FastAPI application
+CMD ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000"]
