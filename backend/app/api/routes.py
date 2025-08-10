@@ -412,3 +412,52 @@ async def health_check() -> Dict[str, Any]:
         "message": "OnlineSim API is running",
         "version": "1.0.0"
     }
+
+# Добавить в конец app/api/routes.py
+
+@router.get("/orders/{order_id}/messages")
+async def get_order_messages(
+    order_id: str,
+    db: AsyncSession = Depends(get_async_db)
+) -> List[Dict[str, Any]]:
+    """Получить SMS сообщения заказа"""
+    try:
+        from ..models.models import Message
+        
+        messages_result = await db.execute(
+            select(Message)
+            .where(Message.order_id == order_id)
+            .order_by(Message.received_at.asc())
+        )
+        messages = messages_result.scalars().all()
+        
+        return [
+            {
+                "id": message.id,
+                "text": message.text,
+                "code": message.code,
+                "received_at": message.received_at.isoformat(),
+                "has_code": bool(message.code)
+            }
+            for message in messages
+        ]
+        
+    except Exception as e:
+        logger.error(f"Error getting messages: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+@router.post("/webhook/sms")
+async def sms_webhook(request: Request) -> Dict[str, Any]:
+    """Webhook для получения SMS"""
+    try:
+        body = await request.body()
+        webhook_data = json.loads(body) if body else {}
+        
+        from ..services.sms.webhook import webhook_handler
+        success = await webhook_handler.process_webhook(webhook_data)
+        
+        return {"status": "ok"} if success else {"status": "error"}
+        
+    except Exception as e:
+        logger.error(f"Webhook error: {e}")
+        raise HTTPException(status_code=500, detail="Webhook failed")
