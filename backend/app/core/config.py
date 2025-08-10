@@ -3,15 +3,14 @@ from typing import List
 import os
 
 class Settings(BaseSettings):
-    # Database - асинхронные URL
-    #database_url: str = "sqlite:///./onlinesim.db"
+    # Database
     async_database_url: str = "sqlite+aiosqlite:///./onlinesim.db"
     database_echo: bool = False
     
     # FastAPI
     secret_key: str = "your-secret-key-here"
     debug: bool = True
-    cors_origins: List[str] = ["http://localhost:5173", "http://localhost:3000"]
+    cors_origins_str: str = ""  # Строка из .env
     
     # SMS Service
     sms_provider: str = "dummy"
@@ -29,13 +28,6 @@ class Settings(BaseSettings):
     telegram_webhook_url: str = ""
     webapp_url: str = "http://localhost:3000"
     
-    # CORS
-    @property
-    def CORS_ORIGINS(self) -> List[str]:
-        """Получить список разрешенных CORS origins"""
-        origins = os.getenv("CORS_ORIGINS", "http://localhost:5173,http://localhost:3000")
-        return [origin.strip() for origin in origins.split(",") if origin.strip()]
-    
     # Server
     host: str = "0.0.0.0"
     port: int = 8000
@@ -44,8 +36,29 @@ class Settings(BaseSettings):
     # Logging
     log_level: str = "INFO"
     
+    @property
+    def CORS_ORIGINS(self) -> List[str]:
+        """Получить список разрешенных CORS origins"""
+        # Читаем напрямую из переменной окружения
+        cors_env = os.getenv("CORS_ORIGINS", "")
+        if cors_env:
+            return [origin.strip() for origin in cors_env.split(",") if origin.strip()]
+        
+        # Если в self.cors_origins_str что-то есть
+        if self.cors_origins_str:
+            return [origin.strip() for origin in self.cors_origins_str.split(",") if origin.strip()]
+        
+        # Fallback для разработки
+        return ["http://localhost:5173", "http://localhost:3000", "https://app2.hezh-digital.ru"]
+    
     class Config:
         env_file = ".env"
         case_sensitive = False
+        # Маппинг для переменной CORS_ORIGINS
+        fields = {
+            'cors_origins_str': {
+                'env': 'CORS_ORIGINS'
+            }
+        }
 
 settings = Settings()
