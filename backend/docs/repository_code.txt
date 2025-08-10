@@ -1,0 +1,2681 @@
+
+
+================================================================================
+FILE: Dockerfile
+================================================================================
+
+# Build stage for frontend
+FROM node:18-alpine as frontend-build
+
+WORKDIR /app/frontend
+
+# Copy frontend package files
+COPY frontend/package*.json ./
+RUN npm install
+
+# Copy frontend source
+COPY frontend/ ./
+COPY shared/ ../shared/
+
+# Create production .env
+RUN echo "VITE_API_URL=https://app2.hezh-digital.ru/api" > .env.production && \
+    echo "VITE_SSE_URL=https://app2.hezh-digital.ru/api/events" >> .env.production && \
+    echo "VITE_WEBAPP_URL=https://app2.hezh-digital.ru" >> .env.production
+
+# Build frontend
+RUN npm run build
+
+# Build stage for backend
+FROM python:3.11-slim as backend-build
+
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    gcc \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy backend requirements
+COPY backend/requirements.txt ./requirements.txt
+
+# Install Python dependencies
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Production stage
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install system dependencies including curl for healthcheck
+RUN apt-get update && apt-get install -y \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy Python dependencies from build stage
+COPY --from=backend-build /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
+COPY --from=backend-build /usr/local/bin /usr/local/bin
+
+# Copy backend code
+COPY backend/ ./backend/
+
+# Copy built frontend
+COPY --from=frontend-build /app/frontend/dist ./frontend/dist/
+
+# Copy shared files
+COPY shared/ ./shared/
+
+# Create data directory
+RUN mkdir -p /app/data
+
+# Expose port
+EXPOSE 8000
+
+# Start the FastAPI application
+CMD ["uvicorn", "backend.app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+
+================================================================================
+FILE: parse.py
+================================================================================
+
+import os
+import pathlib
+
+def export_repo_to_text(root_dir, output_file, include_extensions=None, exclude_dirs=None):
+    """Экспортирует код репозитория в текстовый файл"""
+    if include_extensions is None:
+        include_extensions = ['.py', '.js', '.html', '.css', '.md', '.java', '.c', '.cpp', '.h']
+    
+    if exclude_dirs is None:
+        exclude_dirs = ['.git', '__pycache__', 'node_modules', 'venv', '.venv', 'env', 'dist', 'build']
+    
+    # Создаем папки для выходного файла если нужно
+    os.makedirs(os.path.dirname(output_file), exist_ok=True)
+    
+    root_dir = pathlib.Path(root_dir).resolve()
+    exclude_dirs_set = set(exclude_dirs)
+
+    with open(output_file, 'w', encoding='utf-8') as outfile:
+        for root, dirs, files in os.walk(root_dir):
+            root_path = pathlib.Path(root)
+            
+            # Фильтрация директорий (по имени)
+            dirs[:] = [d for d in dirs if d not in exclude_dirs_set]
+            
+            for file in files:
+                file_path = root_path / file
+                
+                # Проверка расширения
+                if file_path.suffix not in include_extensions:
+                    continue
+
+                # Пропуск если путь содержит исключённую папку (например: .../.venv/...)
+                if any(part in exclude_dirs_set for part in file_path.parts):
+                    continue
+                
+                try:
+                    # Заголовок файла
+                    rel_path = file_path.relative_to(root_dir)
+                    outfile.write(f"\n\n{'=' * 80}\n")
+                    outfile.write(f"FILE: {rel_path}\n")
+                    outfile.write(f"{'=' * 80}\n\n")
+                    
+                    # Чтение содержимого
+                    with open(file_path, 'r', encoding='utf-8') as infile:
+                        outfile.write(infile.read())
+                        
+                except UnicodeDecodeError:
+                    outfile.write(f"\n\n[BINARY FILE: {rel_path} - SKIPPED]\n")
+                except Exception as e:
+                    outfile.write(f"\n\n[ERROR READING {rel_path}: {str(e)}]\n")
+
+if __name__ == "__main__":
+    REPO_DIR = pathlib.Path(__file__).parent.resolve()
+    OUTPUT_PATH = REPO_DIR / "docs/repository_code.txt"
+    
+    print(f"Старт экспорта репозитория: {REPO_DIR}")
+    print(f"Выходной файл: {OUTPUT_PATH}")
+    
+    export_repo_to_text(
+        root_dir=REPO_DIR,
+        output_file=str(OUTPUT_PATH),
+        include_extensions=[".py", ".js", ".html", ".css", ".md", ".ts", ".json",".tsx", "yml", ""],
+        exclude_dirs=[".git", "__pycache__", "venv", ".venv", "env", "dist", "build", "node_modules"]
+    )
+    
+    print(f"Экспорт завершен! Размер файла: {os.path.getsize(OUTPUT_PATH)/1024:.2f} KB")
+
+
+================================================================================
+FILE: alembic\env.py
+================================================================================
+
+
+
+================================================================================
+FILE: alembic\__init__.py
+================================================================================
+
+
+
+================================================================================
+FILE: alembic\versions\__init__.py
+================================================================================
+
+
+
+================================================================================
+FILE: app\data_init.py
+================================================================================
+
+import logging
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
+from .core.database import AsyncSessionLocal
+from .models.models import Country, Service, User, Setting, Statistic
+from .schemas.schemas import CountryStatus
+from datetime import datetime
+import uuid
+
+logger = logging.getLogger(__name__)
+
+async def initialize_data():
+    """Инициализировать начальные данные в БД асинхронно"""
+    async with AsyncSessionLocal() as db:
+        try:
+            await _init_countries(db)
+            await _init_services(db)
+            await _init_sample_user(db)
+            await _init_settings(db)
+            await _init_statistics(db)
+            
+            await db.commit()
+            logger.info("Initial data initialization completed")
+            
+        except Exception as e:
+            logger.error(f"Error initializing data: {e}")
+            await db.rollback()
+            raise
+
+async def _init_countries(db: AsyncSession):
+    """Инициализировать страны асинхронно"""
+    # Проверяем существующие записи
+    result = await db.execute(select(Country))
+    if result.scalars().first():
+        logger.info("Countries already exist, skipping initialization")
+        return
+    
+    countries_data = [
+        {
+            "name": "Россия",
+            "code": "RU", 
+            "flag": "🇷🇺",
+            "price_from": 15,
+            "available": True,
+            "numbers_count": 1234,
+            "status": CountryStatus.AVAILABLE.value
+        },
+        {
+            "name": "Украина",
+            "code": "UA",
+            "flag": "🇺🇦", 
+            "price_from": 22,
+            "available": True,
+            "numbers_count": 856,
+            "status": CountryStatus.AVAILABLE.value
+        },
+        {
+            "name": "Казахстан",
+            "code": "KZ",
+            "flag": "🇰🇿",
+            "price_from": 18,
+            "available": True,
+            "numbers_count": 12,
+            "status": CountryStatus.LOW.value
+        },
+        {
+            "name": "США",
+            "code": "US",
+            "flag": "🇺🇸",
+            "price_from": 45,
+            "available": False,
+            "numbers_count": 0,
+            "status": CountryStatus.UNAVAILABLE.value
+        }
+    ]
+    
+    for country_data in countries_data:
+        country = Country(
+            id=str(uuid.uuid4()),
+            **country_data
+        )
+        db.add(country)
+    
+    logger.info(f"Created {len(countries_data)} countries")
+
+async def _init_services(db: AsyncSession):
+    """Инициализировать сервисы асинхронно"""
+    result = await db.execute(select(Service))
+    if result.scalars().first():
+        logger.info("Services already exist, skipping initialization")
+        return
+    
+    services_data = [
+        {
+            "name": "Telegram",
+            "icon": "fab fa-telegram",
+            "price_from": 15,
+            "price_to": 25,
+            "available": True
+        },
+        {
+            "name": "WhatsApp", 
+            "icon": "fab fa-whatsapp",
+            "price_from": 18,
+            "price_to": 30,
+            "available": True
+        },
+        {
+            "name": "Discord",
+            "icon": "fab fa-discord",
+            "price_from": 20,
+            "price_to": 35,
+            "available": True
+        }
+    ]
+    
+    for service_data in services_data:
+        service = Service(
+            id=str(uuid.uuid4()),
+            **service_data
+        )
+        db.add(service)
+    
+    logger.info(f"Created {len(services_data)} services")
+
+async def _init_sample_user(db: AsyncSession):
+    """Инициализировать тестового пользователя асинхронно"""
+    sample_telegram_id = "sample_user"
+    
+    result = await db.execute(
+        select(User).where(User.telegram_id == sample_telegram_id)
+    )
+    existing_user = result.scalars().first()
+    
+    if existing_user:
+        logger.info("Sample user already exists, skipping initialization")
+        return
+    
+    user = User(
+        id=str(uuid.uuid4()),
+        telegram_id=sample_telegram_id,
+        username="testuser",
+        first_name="Test",
+        last_name="User",
+        balance=12550,  # 125.50 рублей в копейках
+        is_admin=True
+    )
+    
+    db.add(user)
+    logger.info("Created sample user")
+
+async def _init_settings(db: AsyncSession):
+    """Инициализировать настройки асинхронно"""
+    result = await db.execute(select(Setting))
+    if result.scalars().first():
+        logger.info("Settings already exist, skipping initialization")
+        return
+    
+    settings_data = [
+        {
+            "key": "commission_percent",
+            "value": "5",
+            "description": "Комиссия в процентах"
+        },
+        {
+            "key": "min_balance",
+            "value": "100", 
+            "description": "Минимальный баланс в копейках"
+        },
+        {
+            "key": "support_url",
+            "value": "https://t.me/support",
+            "description": "Ссылка на техподдержку"
+        },
+        {
+            "key": "telegram_channel",
+            "value": "https://t.me/onlinesim_channel",
+            "description": "Ссылка на канал Telegram"
+        }
+    ]
+    
+    for setting_data in settings_data:
+        setting = Setting(
+            id=str(uuid.uuid4()),
+            updated_at=datetime.now(),
+            **setting_data
+        )
+        db.add(setting)
+    
+    logger.info(f"Created {len(settings_data)} settings")
+
+async def _init_statistics(db: AsyncSession):
+    """Инициализировать статистику асинхронно"""
+    result = await db.execute(select(Statistic))
+    if result.scalars().first():
+        logger.info("Statistics already exist, skipping initialization")
+        return
+    
+    today = datetime.now().strftime("%Y-%m-%d")
+    yesterday = datetime.now().replace(day=datetime.now().day - 1).strftime("%Y-%m-%d")
+    
+    statistics_data = [
+        {
+            "date": today,
+            "total_orders": 45,
+            "total_revenue": 125000,
+            "new_users": 12, 
+            "active_users": 89
+        },
+        {
+            "date": yesterday,
+            "total_orders": 38,
+            "total_revenue": 98500,
+            "new_users": 8,
+            "active_users": 76
+        }
+    ]
+    
+    for stat_data in statistics_data:
+        statistic = Statistic(
+            id=str(uuid.uuid4()),
+            **stat_data
+        )
+        db.add(statistic)
+    
+    logger.info(f"Created {len(statistics_data)} statistics records")
+
+================================================================================
+FILE: app\main.py
+================================================================================
+
+from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
+import os
+import logging
+from contextlib import asynccontextmanager
+
+from .core.config import settings
+from .core.database import create_tables
+from .init_data import initialize_data
+from .api.routes import router
+from .services.sms.adapter import SMSAdapter
+
+# Настройка логирования
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Глобальная переменная для SMS адаптера
+sms_adapter = None
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Управление жизненным циклом приложения"""
+    global sms_adapter
+    
+    # Startup
+    try:
+        # 1. Создание таблиц БД асинхронно
+        logger.info("Creating database tables...")
+        await create_tables()
+        logger.info("✅ Database tables created")
+        
+        # 2. Инициализация данных асинхронно
+        logger.info("Loading initial data...")
+        await initialize_data()
+        logger.info("✅ Initial data loaded")
+        
+        # 3. SMS адаптер
+        logger.info("Initializing SMS adapter...")
+        sms_adapter = SMSAdapter(
+            provider_name=getattr(settings, 'sms_provider', 'dummy'),
+            api_key=getattr(settings, 'sms_api_key', None)
+        )
+        logger.info("✅ SMS adapter initialized")
+        
+    except Exception as e:
+        logger.error(f"❌ Initialization failed: {e}")
+        # Fallback
+        if sms_adapter is None:
+            sms_adapter = SMSAdapter(provider_name="dummy")
+    
+    yield
+    
+    # Shutdown
+    logger.info("Shutting down...")
+
+# Создание FastAPI приложения
+app = FastAPI(
+    title="OnlineSim API",
+    description="API для получения SMS на виртуальные номера",
+    version="1.0.0",
+    lifespan=lifespan
+)
+
+# CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Подключение маршрутов API
+app.include_router(router, prefix="/api")
+
+# Статические файлы (фронтенд)
+if os.path.exists("/app/frontend/dist"):
+    app.mount("/static", StaticFiles(directory="/app/frontend/dist"), name="static")
+    
+    @app.get("/")
+    async def read_root():
+        """Главная страница - возвращаем index.html фронтенда"""
+        return FileResponse("/app/frontend/dist/index.html")
+    
+    @app.get("/{full_path:path}")
+    async def catch_all(full_path: str):
+        """Перенаправляем все остальные запросы на index.html для SPA"""
+        # Проверяем, не запрос ли это к API
+        if full_path.startswith("api/"):
+            return {"error": "Not found"}
+        
+        # Проверяем, существует ли файл
+        file_path = f"/app/frontend/dist/{full_path}"
+        if os.path.exists(file_path) and os.path.isfile(file_path):
+            return FileResponse(file_path)
+        
+        # Для всех остальных запросов возвращаем index.html
+        return FileResponse("/app/frontend/dist/index.html")
+
+@app.get("/health")
+async def health_check():
+    """Проверка состояния сервиса"""
+    return {
+        "status": "ok",
+        "sms_provider": settings.sms_provider if sms_adapter else "not initialized"
+    }
+
+def get_sms_adapter() -> SMSAdapter:
+    """Получить экземпляр SMS адаптера"""
+    global sms_adapter
+    if sms_adapter is None:
+        # Создаем fallback адаптер если основной не инициализирован
+        sms_adapter = SMSAdapter(provider_name="dummy")
+    return sms_adapter
+
+================================================================================
+FILE: app\__init__.py
+================================================================================
+
+
+
+================================================================================
+FILE: app\api\routes.py
+================================================================================
+
+from fastapi import APIRouter, HTTPException, Depends, Request
+from typing import List, Dict, Any
+import logging
+import json
+
+logger = logging.getLogger(__name__)
+router = APIRouter()
+
+# Тестовые данные
+MOCK_COUNTRIES = [
+    {
+        "id": "0",
+        "name": "Россия", 
+        "code": "RU",
+        "flag": "🇷🇺",
+        "priceFrom": 15,
+        "available": True,
+        "numbersCount": 1234,
+        "status": "available"
+    },
+    {
+        "id": "1", 
+        "name": "Украина",
+        "code": "UA", 
+        "flag": "🇺🇦",
+        "priceFrom": 22,
+        "available": True,
+        "numbersCount": 856,
+        "status": "available"
+    },
+    {
+        "id": "2",
+        "name": "Беларусь",
+        "code": "BY",
+        "flag": "🇧🇾", 
+        "priceFrom": 18,
+        "available": True,
+        "numbersCount": 645,
+        "status": "available"
+    },
+    {
+        "id": "3",
+        "name": "Казахстан", 
+        "code": "KZ",
+        "flag": "🇰🇿",
+        "priceFrom": 20,
+        "available": True, 
+        "numbersCount": 432,
+        "status": "available"
+    }
+]
+
+MOCK_SERVICES = [
+    {
+        "id": "tg",
+        "name": "Telegram",
+        "icon": "fab fa-telegram-plane",
+        "priceFrom": 15,
+        "priceTo": 25, 
+        "available": True
+    },
+    {
+        "id": "wa",
+        "name": "WhatsApp", 
+        "icon": "fab fa-whatsapp",
+        "priceFrom": 18,
+        "priceTo": 30,
+        "available": True
+    },
+    {
+        "id": "vk", 
+        "name": "VKontakte",
+        "icon": "fab fa-vk",
+        "priceFrom": 12,
+        "priceTo": 20,
+        "available": True
+    },
+    {
+        "id": "ok",
+        "name": "Odnoklassniki",
+        "icon": "fas fa-circle", 
+        "priceFrom": 10,
+        "priceTo": 15,
+        "available": True
+    }
+]
+
+@router.get("/countries")
+async def get_countries() -> List[Dict[str, Any]]:
+    """Получить список доступных стран"""
+    try:
+        logger.info("Getting countries list")
+        result = MOCK_COUNTRIES
+        logger.info(f"Returning {len(result)} countries: {[c['name'] for c in result]}")
+        return result
+    except Exception as e:
+        logger.error(f"Error getting countries: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+@router.get("/services") 
+async def get_services() -> List[Dict[str, Any]]:
+    """Получить список доступных сервисов"""
+    try:
+        logger.info("Getting services list")
+        result = MOCK_SERVICES
+        logger.info(f"Returning {len(result)} services: {[s['name'] for s in result]}")
+        return result
+    except Exception as e:
+        logger.error(f"Error getting services: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+@router.get("/users/{user_id}")
+async def get_user(user_id: str) -> Dict[str, Any]:
+    """Получить информацию о пользователе"""
+    try:
+        logger.info(f"Getting user info for: {user_id}")
+        # Мок данные пользователя
+        return {
+            "id": user_id,
+            "username": user_id,
+            "balance": 100.50,
+            "orders": [],
+            "created_at": "2024-01-01T00:00:00Z"
+        }
+    except Exception as e:
+        logger.error(f"Error getting user {user_id}: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+@router.get("/orders")
+async def get_orders(user_id: str = None) -> List[Dict[str, Any]]:
+    """Получить список заказов пользователя"""
+    try:
+        logger.info(f"Getting orders for user: {user_id}")
+        # Возвращаем пустой массив для начала
+        result = []
+        logger.info(f"Returning {len(result)} orders")
+        return result
+    except Exception as e:
+        logger.error(f"Error getting orders: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+# Добавляем endpoint для сервисов по стране (может быть нужен фронтенду)
+@router.get("/countries/{country_id}/services")
+async def get_services_by_country(country_id: str) -> List[Dict[str, Any]]:
+    """Получить список сервисов для определенной страны"""
+    try:
+        logger.info(f"Getting services for country: {country_id}")
+        result = MOCK_SERVICES  # Возвращаем те же сервисы
+        logger.info(f"Returning {len(result)} services for country {country_id}")
+        return result
+    except Exception as e:
+        logger.error(f"Error getting services for country {country_id}: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+# Добавляем endpoint для цен (может быть нужен)
+@router.get("/prices")
+async def get_prices() -> List[Dict[str, Any]]:
+    """Получить список цен для стран/сервисов"""
+    try:
+        logger.info("Getting prices list")
+        result = [
+            {"country_id": "0", "service_id": "tg", "price": 15},
+            {"country_id": "0", "service_id": "wa", "price": 18},
+            {"country_id": "1", "service_id": "tg", "price": 22},
+            {"country_id": "1", "service_id": "wa", "price": 25}
+        ]
+        logger.info(f"Returning {len(result)} prices")
+        return result
+    except Exception as e:
+        logger.error(f"Error getting prices: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+# Добавляем catch-all для неизвестных endpoints
+@router.get("/{path:path}")
+async def catch_all(path: str):
+    """Перехватчик для всех неизвестных API путей"""
+    logger.warning(f"Unknown API endpoint requested: /{path}")
+    # Возвращаем пустой массив по умолчанию
+    return []
+
+@router.post("/orders")
+async def create_order(request: Request) -> Dict[str, Any]:
+    """Создать новый заказ номера"""
+    try:
+        # Читаем сырые данные из запроса
+        body = await request.body()
+        logger.info(f"Raw request body: {body}")
+        
+        # Пробуем разобрать JSON
+        try:
+            order_data = json.loads(body) if body else {}
+        except json.JSONDecodeError as e:
+            logger.error(f"JSON decode error: {e}")
+            order_data = {}
+        
+        logger.info(f"Parsed order data: {order_data}")
+        
+        # Более мягкая валидация - берем что есть
+        user_id = order_data.get("user_id", order_data.get("userId", "sample_user"))
+        country_id = order_data.get("country_id", order_data.get("countryId", "0"))
+        service_id = order_data.get("service_id", order_data.get("serviceId", "tg"))
+        
+        logger.info(f"Extracted: user_id={user_id}, country_id={country_id}, service_id={service_id}")
+        
+        # Создаем заказ с любыми данными
+        import time
+        order_id = f"order_{int(time.time())}"
+        
+        new_order = {
+            "id": order_id,
+            "user_id": user_id,
+            "country_id": str(country_id),
+            "service_id": str(service_id),
+            "phone_number": "+79001234567",  # Мок номер
+            "status": "pending",
+            "cost": 15.0,
+            "created_at": "2024-01-01T10:00:00Z",
+            "messages": [],
+            "success": True
+        }
+        
+        logger.info(f"Successfully created order: {new_order}")
+        return new_order
+        
+    except Exception as e:
+        logger.error(f"Error creating order: {e}")
+        # Возвращаем успешный ответ даже при ошибке для тестирования
+        return {
+            "success": True,
+            "id": "order_fallback",
+            "user_id": "sample_user",
+            "country_id": "0",
+            "service_id": "tg",
+            "phone_number": "+79001234567",
+            "status": "pending",
+            "cost": 15.0,
+            "created_at": "2024-01-01T10:00:00Z",
+            "messages": [],
+            "error_info": str(e)
+        }
+
+@router.get("/orders/{order_id}")
+async def get_order(order_id: str) -> Dict[str, Any]:
+    """Получить информацию о заказе"""
+    try:
+        logger.info(f"Getting order: {order_id}")
+        
+        # Мок данные заказа
+        return {
+            "id": order_id,
+            "user_id": "sample_user", 
+            "country_id": "0",
+            "service_id": "tg",
+            "phone_number": "+79001234567",
+            "status": "pending",
+            "cost": 15.0,
+            "created_at": "2024-01-01T10:00:00Z",
+            "messages": []
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting order {order_id}: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+@router.delete("/orders/{order_id}")
+async def cancel_order(order_id: str) -> Dict[str, Any]:
+    """Отменить заказ"""
+    try:
+        logger.info(f"Cancelling order: {order_id}")
+        
+        return {
+            "id": order_id,
+            "status": "cancelled",
+            "message": "Order cancelled successfully"
+        }
+        
+    except Exception as e:
+        logger.error(f"Error cancelling order {order_id}: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+@router.get("/health")
+async def health_check() -> Dict[str, Any]:
+    """Проверка состояния API"""
+    return {
+        "status": "ok",
+        "message": "OnlineSim API is running",
+        "version": "1.0.0"
+    }
+
+================================================================================
+FILE: app\api\sse.py
+================================================================================
+
+import asyncio
+import json
+import logging
+from typing import Dict, List, Any, Optional
+from fastapi import Request
+from fastapi.responses import StreamingResponse
+from ..schemas.schemas import SSEEvent
+
+logger = logging.getLogger(__name__)
+
+class SSEManager:
+    """Менеджер для Server-Sent Events"""
+    
+    def __init__(self):
+        self.connections: Dict[str, List[asyncio.Queue]] = {}
+    
+    async def connect(self, user_id: str) -> asyncio.Queue:
+        """Подключить пользователя к SSE"""
+        queue = asyncio.Queue()
+        
+        if user_id not in self.connections:
+            self.connections[user_id] = []
+        
+        self.connections[user_id].append(queue)
+        logger.info(f"SSE connection added for user {user_id}")
+        
+        return queue
+    
+    async def disconnect(self, user_id: str, queue: asyncio.Queue):
+        """Отключить пользователя от SSE"""
+        if user_id in self.connections:
+            try:
+                self.connections[user_id].remove(queue)
+                if not self.connections[user_id]:
+                    del self.connections[user_id]
+                logger.info(f"SSE connection removed for user {user_id}")
+            except ValueError:
+                pass
+    
+    async def send_to_user(self, user_id: str, event_type: str, data: Dict[str, Any]):
+        """Отправить событие конкретному пользователю"""
+        if user_id not in self.connections:
+            logger.debug(f"No SSE connections for user {user_id}")
+            return
+        
+        event = SSEEvent(type=event_type, data=data)
+        message = self._format_sse_message(event)
+        
+        # Отправляем во все активные соединения пользователя
+        disconnected_queues = []
+        for queue in self.connections[user_id]:
+            try:
+                await queue.put(message)
+            except Exception as e:
+                logger.error(f"Error sending SSE message: {e}")
+                disconnected_queues.append(queue)
+        
+        # Удаляем неактивные соединения
+        for queue in disconnected_queues:
+            await self.disconnect(user_id, queue)
+        
+        logger.debug(f"SSE event sent to user {user_id}: {event_type}")
+    
+    async def broadcast(self, event_type: str, data: Dict[str, Any]):
+        """Отправить событие всем подключенным пользователям"""
+        event = SSEEvent(type=event_type, data=data)
+        message = self._format_sse_message(event)
+        
+        for user_id in list(self.connections.keys()):
+            await self.send_to_user(user_id, event_type, data)
+        
+        logger.debug(f"SSE event broadcasted: {event_type}")
+    
+    def _format_sse_message(self, event: SSEEvent) -> str:
+        """Форматировать сообщение в формате SSE"""
+        data_json = json.dumps(event.data, ensure_ascii=False)
+        return f"event: {event.type}\ndata: {data_json}\n\n"
+    
+    def get_connection_count(self, user_id: str) -> int:
+        """Получить количество активных соединений пользователя"""
+        return len(self.connections.get(user_id, []))
+    
+    def get_total_connections(self) -> int:
+        """Получить общее количество активных соединений"""
+        return sum(len(queues) for queues in self.connections.values())
+
+# Глобальный экземпляр менеджера
+sse_manager = SSEManager()
+
+async def create_sse_stream(request: Request, user_id: str):
+    """Создать поток SSE для пользователя"""
+    
+    async def event_stream():
+        queue = await sse_manager.connect(user_id)
+        
+        try:
+            # Отправляем приветственное сообщение
+            welcome_message = sse_manager._format_sse_message(
+                SSEEvent(
+                    type="connected",
+                    data={
+                        "message": "SSE connection established",
+                        "timestamp": str(asyncio.get_event_loop().time())
+                    }
+                )
+            )
+            yield welcome_message
+            
+            # Отправляем keep-alive каждые 30 секунд
+            keep_alive_task = asyncio.create_task(send_keep_alive(queue))
+            
+            # Обрабатываем события
+            while True:
+                try:
+                    # Ждем новое сообщение с таймаутом
+                    message = await asyncio.wait_for(queue.get(), timeout=1.0)
+                    yield message
+                    
+                except asyncio.TimeoutError:
+                    # Проверяем, не отключился ли клиент
+                    if await request.is_disconnected():
+                        break
+                    continue
+                    
+                except Exception as e:
+                    logger.error(f"Error in SSE stream: {e}")
+                    break
+            
+        except Exception as e:
+            logger.error(f"Error in SSE event stream: {e}")
+            
+        finally:
+            # Очистка при отключении
+            keep_alive_task.cancel()
+            await sse_manager.disconnect(user_id, queue)
+    
+    return event_stream()
+
+async def send_keep_alive(queue: asyncio.Queue):
+    """Отправлять keep-alive сообщения"""
+    try:
+        while True:
+            await asyncio.sleep(30)  # Каждые 30 секунд
+            
+            keep_alive_message = sse_manager._format_sse_message(
+                SSEEvent(
+                    type="keep_alive",
+                    data={"timestamp": str(asyncio.get_event_loop().time())}
+                )
+            )
+            
+            await queue.put(keep_alive_message)
+            
+    except asyncio.CancelledError:
+        pass
+    except Exception as e:
+        logger.error(f"Error in keep-alive task: {e}")
+
+def create_sse_response(request: Request, user_id: str) -> StreamingResponse:
+    """Создать SSE response"""
+    return StreamingResponse(
+        create_sse_stream(request, user_id),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Headers": "Cache-Control"
+        }
+    )
+
+================================================================================
+FILE: app\api\__init__.py
+================================================================================
+
+
+
+================================================================================
+FILE: app\core\config.py
+================================================================================
+
+from pydantic_settings import BaseSettings
+from typing import List
+import os
+
+class Settings(BaseSettings):
+    # Database - асинхронные URL
+    #database_url: str = "sqlite:///./onlinesim.db"
+    async_database_url: str = "sqlite+aiosqlite:///./onlinesim.db"
+    database_echo: bool = False
+    
+    # FastAPI
+    secret_key: str = "your-secret-key-here"
+    debug: bool = True
+    cors_origins: List[str] = ["http://localhost:5173", "http://localhost:3000"]
+    
+    # SMS Service
+    sms_provider: str = "dummy"
+    sms_api_key: str = ""
+    sms_api_url: str = "https://api.sms-service.com"
+    sms_webhook_secret: str = "webhook-secret-key"
+    
+    # Order Settings
+    order_timeout_minutes: int = 15
+    api_timeout_seconds: int = 30
+    retry_attempts: int = 3
+    
+    # Telegram Bot
+    telegram_bot_token: str = ""
+    telegram_webhook_url: str = ""
+    webapp_url: str = "http://localhost:3000"
+    
+    # CORS
+    @property
+    def CORS_ORIGINS(self) -> List[str]:
+        """Получить список разрешенных CORS origins"""
+        origins = os.getenv("CORS_ORIGINS", "http://localhost:5173,http://localhost:3000")
+        return [origin.strip() for origin in origins.split(",") if origin.strip()]
+    
+    # Server
+    host: str = "0.0.0.0"
+    port: int = 8000
+    frontend_port: int = 3000
+    
+    # Logging
+    log_level: str = "INFO"
+    
+    class Config:
+        env_file = ".env"
+        case_sensitive = False
+
+settings = Settings()
+
+================================================================================
+FILE: app\core\database.py
+================================================================================
+
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
+from sqlalchemy.ext.declarative import declarative_base
+from .config import settings
+
+# Создание асинхронного движка
+engine = create_async_engine(
+    settings.async_database_url,
+    echo=settings.database_echo,
+    future=True
+)
+
+# Асинхронная сессия
+AsyncSessionLocal = async_sessionmaker(
+    engine,
+    class_=AsyncSession,
+    expire_on_commit=False,
+    autoflush=False,
+    autocommit=False
+)
+
+Base = declarative_base()
+
+async def get_async_db():
+    """Получить асинхронную сессию БД"""
+    async with AsyncSessionLocal() as session:
+        try:
+            yield session
+        finally:
+            await session.close()
+
+async def create_tables():
+    """Создать таблицы асинхронно"""
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+async def drop_tables():
+    """Удалить все таблицы (для тестов)"""
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.drop_all)
+
+================================================================================
+FILE: app\core\__init__.py
+================================================================================
+
+
+
+================================================================================
+FILE: app\models\models.py
+================================================================================
+
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, Text, ForeignKey
+from sqlalchemy.orm import relationship
+from sqlalchemy.sql import func
+from ..core.database import Base
+
+class Country(Base):
+    __tablename__ = "countries"
+    
+    id = Column(String, primary_key=True)
+    name = Column(Text, nullable=False)
+    code = Column(Text, nullable=False, unique=True)
+    flag = Column(Text, nullable=False)
+    price_from = Column(Integer, nullable=False)
+    available = Column(Boolean, nullable=False, default=True)
+    numbers_count = Column(Integer, nullable=False, default=0)
+    status = Column(Text, nullable=False, default="available")  # available, low, unavailable
+
+class Service(Base):
+    __tablename__ = "services"
+    
+    id = Column(String, primary_key=True)
+    name = Column(Text, nullable=False)
+    icon = Column(Text, nullable=False)
+    price_from = Column(Integer, nullable=False)
+    price_to = Column(Integer, nullable=False)
+    available = Column(Boolean, nullable=False, default=True)
+
+class Order(Base):
+    __tablename__ = "orders"
+    
+    id = Column(String, primary_key=True)
+    phone_number = Column(Text, nullable=False)
+    country_id = Column(String, ForeignKey("countries.id"), nullable=False)
+    service_id = Column(String, ForeignKey("services.id"), nullable=False)
+    user_telegram_id = Column(String, ForeignKey("users.telegram_id"), nullable=False)
+    price = Column(Integer, nullable=False)
+    status = Column(Text, nullable=False, default="pending")  # pending, received, expired, cancelled
+    expires_at = Column(DateTime, nullable=False)
+    created_at = Column(DateTime, nullable=False, default=func.now())
+    
+    # SMS service specific fields
+    external_order_id = Column(String, nullable=True)  # ID от SMS сервиса
+    
+    # Relationships
+    country = relationship("Country")
+    service = relationship("Service")
+    user = relationship("User")
+    messages = relationship("Message", back_populates="order")
+
+class Message(Base):
+    __tablename__ = "messages"
+    
+    id = Column(String, primary_key=True)
+    order_id = Column(String, ForeignKey("orders.id"), nullable=False)
+    text = Column(Text, nullable=False)
+    code = Column(Text, nullable=True)
+    received_at = Column(DateTime, nullable=False, default=func.now())
+    
+    # Relationship
+    order = relationship("Order", back_populates="messages")
+
+class User(Base):
+    __tablename__ = "users"
+    
+    id = Column(String, primary_key=True)
+    telegram_id = Column(String, nullable=False, unique=True, index=True)
+    username = Column(Text, nullable=True)
+    first_name = Column(Text, nullable=True)
+    last_name = Column(Text, nullable=True)
+    balance = Column(Integer, nullable=False, default=0)  # in kopecks
+    is_admin = Column(Boolean, nullable=False, default=False)
+    created_at = Column(DateTime, nullable=False, default=func.now())
+    
+    # Relationships
+    orders = relationship("Order")
+
+class Setting(Base):
+    __tablename__ = "settings"
+    
+    id = Column(String, primary_key=True)
+    key = Column(Text, nullable=False, unique=True)
+    value = Column(Text, nullable=False)
+    description = Column(Text, nullable=True)
+    updated_at = Column(DateTime, nullable=False, default=func.now(), onupdate=func.now())
+
+class Statistic(Base):
+    __tablename__ = "statistics"
+    
+    id = Column(String, primary_key=True)
+    date = Column(Text, nullable=False, unique=True)  # YYYY-MM-DD
+    total_orders = Column(Integer, nullable=False, default=0)
+    total_revenue = Column(Integer, nullable=False, default=0)  # in kopecks
+    new_users = Column(Integer, nullable=False, default=0)
+    active_users = Column(Integer, nullable=False, default=0)
+
+================================================================================
+FILE: app\models\__init__.py
+================================================================================
+
+
+
+================================================================================
+FILE: app\schemas\schemas.py
+================================================================================
+
+from pydantic import BaseModel
+from datetime import datetime
+from typing import Optional, List
+from enum import Enum
+
+# Enums
+class OrderStatus(str, Enum):
+    PENDING = "pending"
+    RECEIVED = "received" 
+    EXPIRED = "expired"
+    CANCELLED = "cancelled"
+
+class CountryStatus(str, Enum):
+    AVAILABLE = "available"
+    LOW = "low"
+    UNAVAILABLE = "unavailable"
+
+# Base schemas
+class CountryBase(BaseModel):
+    name: str
+    code: str
+    flag: str
+    price_from: int
+    available: bool = True
+    numbers_count: int = 0
+    status: CountryStatus = CountryStatus.AVAILABLE
+
+class Country(CountryBase):
+    id: str
+    
+    class Config:
+        from_attributes = True
+
+class ServiceBase(BaseModel):
+    name: str
+    icon: str
+    price_from: int
+    price_to: int
+    available: bool = True
+
+class Service(ServiceBase):
+    id: str
+    
+    class Config:
+        from_attributes = True
+
+class OrderBase(BaseModel):
+    phone_number: str
+    country_id: str
+    service_id: str
+    price: int
+    status: OrderStatus = OrderStatus.PENDING
+
+class OrderCreate(BaseModel):
+    country_id: str
+    service_id: str
+    telegram_id: str
+
+class Order(OrderBase):
+    id: str
+    user_telegram_id: str
+    expires_at: datetime
+    created_at: datetime
+    external_order_id: Optional[str] = None
+    
+    # Relationships
+    country: Optional[Country] = None
+    service: Optional[Service] = None
+    
+    class Config:
+        from_attributes = True
+
+class MessageBase(BaseModel):
+    text: str
+    code: Optional[str] = None
+
+class MessageCreate(MessageBase):
+    order_id: str
+
+class Message(MessageBase):
+    id: str
+    order_id: str
+    received_at: datetime
+    
+    class Config:
+        from_attributes = True
+
+class UserBase(BaseModel):
+    telegram_id: str
+    username: Optional[str] = None
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    balance: int = 0
+    is_admin: bool = False
+
+class UserCreate(UserBase):
+    pass
+
+class User(UserBase):
+    id: str
+    created_at: datetime
+    
+    class Config:
+        from_attributes = True
+
+class SettingBase(BaseModel):
+    key: str
+    value: str
+    description: Optional[str] = None
+
+class SettingCreate(SettingBase):
+    pass
+
+class SettingUpdate(BaseModel):
+    value: str
+
+class Setting(SettingBase):
+    id: str
+    updated_at: datetime
+    
+    class Config:
+        from_attributes = True
+
+class StatisticBase(BaseModel):
+    date: str  # YYYY-MM-DD
+    total_orders: int = 0
+    total_revenue: int = 0
+    new_users: int = 0
+    active_users: int = 0
+
+class StatisticCreate(StatisticBase):
+    pass
+
+class Statistic(StatisticBase):
+    id: str
+    
+    class Config:
+        from_attributes = True
+
+# Response schemas
+class OrderResponse(Order):
+    messages: List[Message] = []
+
+# Webhook schemas
+class SMSWebhookData(BaseModel):
+    order_id: str
+    phone_number: str
+    message_text: str
+    code: Optional[str] = None
+    timestamp: datetime
+
+# SSE Event schemas  
+class SSEEvent(BaseModel):
+    type: str
+    data: dict
+
+class OrderStatusUpdate(BaseModel):
+    order_id: str
+    status: OrderStatus
+    message: Optional[str] = None
+
+class SMSReceived(BaseModel):
+    order_id: str
+    message: Message
+
+================================================================================
+FILE: app\schemas\__init__.py
+================================================================================
+
+
+
+================================================================================
+FILE: app\services\order_service.py
+================================================================================
+
+import asyncio
+import logging
+from datetime import datetime, timedelta
+from typing import Optional, List
+from sqlalchemy.orm import Session
+from sqlalchemy import and_
+from ..core.config import settings
+from ..models.models import Order, User, Country, Service, Message
+from ..schemas.schemas import OrderCreate, OrderStatus
+from .sms.adapter import SMSProviderFactory
+
+logger = logging.getLogger(__name__)
+
+class OrderService:
+    """Сервис для работы с заказами"""
+    
+    def __init__(self):
+        self.sms_provider = None
+        self._init_sms_provider()
+    
+    def _init_sms_provider(self):
+        """Инициализировать SMS провайдера"""
+        try:
+            self.sms_provider = SMSProviderFactory.create_provider(
+                settings.sms_provider,
+                api_key=settings.sms_api_key,
+                api_url=settings.sms_api_url
+            )
+            logger.info(f"SMS provider initialized: {settings.sms_provider}")
+        except Exception as e:
+            logger.error(f"Failed to initialize SMS provider: {e}")
+    
+    async def create_order(self, db: Session, order_data: OrderCreate) -> Optional[Order]:
+        """Создать новый заказ"""
+        try:
+            # Проверяем пользователя
+            user = db.query(User).filter(User.telegram_id == order_data.telegram_id).first()
+            if not user:
+                logger.error(f"User not found: {order_data.telegram_id}")
+                return None
+            
+            # Проверяем страну и сервис
+            country = db.query(Country).filter(Country.id == order_data.country_id).first()
+            service = db.query(Service).filter(Service.id == order_data.service_id).first()
+            
+            if not country or not service:
+                logger.error("Country or service not found")
+                return None
+            
+            if not country.available or not service.available:
+                logger.error("Country or service not available")
+                return None
+            
+            # Вычисляем цену
+            price = max(country.price_from, service.price_from)
+            
+            # Проверяем баланс
+            if user.balance < price:
+                logger.error(f"Insufficient balance: {user.balance} < {price}")
+                return None
+            
+            # Заказываем номер через SMS провайдера
+            sms_result = await self._order_phone_number(country.code, service.name)
+            if not sms_result or not sms_result.success:
+                logger.error(f"Failed to order phone number: {sms_result.error_message if sms_result else 'Unknown error'}")
+                return None
+            
+            # Создаем заказ
+            order = Order(
+                id=self._generate_id(),
+                phone_number=sms_result.phone_number,
+                country_id=order_data.country_id,
+                service_id=order_data.service_id,
+                user_telegram_id=order_data.telegram_id,
+                price=price,
+                status=OrderStatus.PENDING.value,
+                expires_at=datetime.now() + timedelta(minutes=settings.order_timeout_minutes),
+                external_order_id=sms_result.external_order_id
+            )
+            
+            # Списываем деньги с баланса
+            user.balance -= price
+            
+            # Сохраняем в БД
+            db.add(order)
+            db.commit()
+            db.refresh(order)
+            
+            logger.info(f"Order created: {order.id}, phone: {order.phone_number}")
+            
+            # Запускаем фоновую задачу для отслеживания истечения времени
+            asyncio.create_task(self._monitor_order_expiration(order.id))
+            
+            return order
+            
+        except Exception as e:
+            logger.error(f"Error creating order: {e}")
+            db.rollback()
+            return None
+    
+    async def cancel_order(self, db: Session, order_id: str, user_telegram_id: str) -> bool:
+        """Отменить заказ"""
+        try:
+            order = db.query(Order).filter(
+                and_(
+                    Order.id == order_id,
+                    Order.user_telegram_id == user_telegram_id,
+                    Order.status == OrderStatus.PENDING.value
+                )
+            ).first()
+            
+            if not order:
+                logger.warning(f"Order not found or cannot be cancelled: {order_id}")
+                return False
+            
+            # Отменяем заказ в SMS сервисе
+            if order.external_order_id and self.sms_provider:
+                try:
+                    await self.sms_provider.cancel_order(order.external_order_id)
+                except Exception as e:
+                    logger.warning(f"Failed to cancel order in SMS service: {e}")
+            
+            # Возвращаем деньги
+            user = db.query(User).filter(User.telegram_id == user_telegram_id).first()
+            if user:
+                user.balance += order.price
+            
+            # Обновляем статус
+            order.status = OrderStatus.CANCELLED.value
+            
+            db.commit()
+            logger.info(f"Order cancelled: {order_id}")
+            
+            # Уведомляем фронтенд
+            await self._notify_order_status_change(order, "Заказ отменен")
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error cancelling order: {e}")
+            db.rollback()
+            return False
+    
+    async def get_user_orders(self, db: Session, user_telegram_id: str) -> List[Order]:
+        """Получить заказы пользователя"""
+        return db.query(Order).filter(
+            Order.user_telegram_id == user_telegram_id
+        ).order_by(Order.created_at.desc()).all()
+    
+    async def get_active_orders(self, db: Session) -> List[Order]:
+        """Получить активные заказы"""
+        return db.query(Order).filter(
+            Order.status == OrderStatus.PENDING.value
+        ).all()
+    
+    async def _order_phone_number(self, country_code: str, service_name: str):
+        """Заказать номер через SMS провайдера"""
+        if not self.sms_provider:
+            logger.error("SMS provider not initialized")
+            return None
+        
+        try:
+            service_code = self.sms_provider.map_service_name_to_code(service_name)
+            country_code = self.sms_provider.map_country_code(country_code)
+            
+            return await self.sms_provider.order_number(country_code, service_code)
+            
+        except Exception as e:
+            logger.error(f"Error ordering phone number: {e}")
+            return None
+    
+    async def _monitor_order_expiration(self, order_id: str):
+        """Отслеживать истечение времени заказа"""
+        try:
+            # Ждем время истечения заказа
+            await asyncio.sleep(settings.order_timeout_minutes * 60)
+            
+            # Проверяем заказ
+            db = next(self._get_db())
+            try:
+                order = db.query(Order).filter(Order.id == order_id).first()
+                if not order:
+                    return
+                
+                # Если заказ все еще pending, помечаем как expired и возвращаем деньги
+                if order.status == OrderStatus.PENDING.value:
+                    await self._expire_order(db, order)
+                    
+            finally:
+                db.close()
+                
+        except Exception as e:
+            logger.error(f"Error monitoring order expiration: {e}")
+    
+    async def _expire_order(self, db: Session, order: Order):
+        """Пометить заказ как истекший и вернуть деньги"""
+        try:
+            # Возвращаем деньги
+            user = db.query(User).filter(User.telegram_id == order.user_telegram_id).first()
+            if user:
+                user.balance += order.price
+            
+            # Обновляем статус
+            order.status = OrderStatus.EXPIRED.value
+            
+            # Отменяем заказ в SMS сервисе
+            if order.external_order_id and self.sms_provider:
+                try:
+                    await self.sms_provider.cancel_order(order.external_order_id)
+                except Exception as e:
+                    logger.warning(f"Failed to cancel expired order in SMS service: {e}")
+            
+            db.commit()
+            logger.info(f"Order expired: {order.id}")
+            
+            # Уведомляем фронтенд
+            await self._notify_order_status_change(order, "Время ожидания истекло, деньги возвращены")
+            
+        except Exception as e:
+            logger.error(f"Error expiring order: {e}")
+            db.rollback()
+    
+    async def _notify_order_status_change(self, order: Order, message: str):
+        """Уведомить об изменении статуса заказа"""
+        try:
+            from ..api.sse import sse_manager
+            
+            await sse_manager.send_to_user(
+                user_id=order.user_telegram_id,
+                event_type="order_status_updated",
+                data={
+                    "order_id": order.id,
+                    "status": order.status,
+                    "message": message
+                }
+            )
+        except Exception as e:
+            logger.error(f"Error sending order status notification: {e}")
+    
+    def _generate_id(self) -> str:
+        """Генерировать уникальный ID"""
+        import uuid
+        return str(uuid.uuid4())
+    
+    def _get_db(self):
+        """Получить сессию БД"""
+        from ..core.database import get_db
+        return get_db()
+
+# Периодическая задача для очистки истекших заказов
+class OrderCleanupService:
+    """Сервис для очистки истекших заказов"""
+    
+    @staticmethod
+    async def cleanup_expired_orders():
+        """Очистить истекшие заказы"""
+        db = next(get_db())
+        try:
+            expired_orders = db.query(Order).filter(
+                and_(
+                    Order.status == OrderStatus.PENDING.value,
+                    Order.expires_at < datetime.now()
+                )
+            ).all()
+            
+            order_service = OrderService()
+            for order in expired_orders:
+                await order_service._expire_order(db, order)
+                
+            if expired_orders:
+                logger.info(f"Cleaned up {len(expired_orders)} expired orders")
+                
+        except Exception as e:
+            logger.error(f"Error in cleanup task: {e}")
+        finally:
+            db.close()
+
+# Запускаем периодическую очистку
+async def start_cleanup_task():
+    """Запустить задачу периодической очистки"""
+    while True:
+        try:
+            await OrderCleanupService.cleanup_expired_orders()
+            await asyncio.sleep(60)  # Проверяем каждую минуту
+        except Exception as e:
+            logger.error(f"Error in cleanup task loop: {e}")
+            await asyncio.sleep(60)
+
+================================================================================
+FILE: app\services\user_service.py
+================================================================================
+
+import logging
+from datetime import datetime
+from typing import Optional
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
+from ..models.models import User
+from ..schemas.schemas import UserCreate
+from ..utils.telegram import validate_telegram_init_data
+
+logger = logging.getLogger(__name__)
+
+class UserService:
+    """Сервис для работы с пользователями (async)"""
+    
+    @staticmethod
+    async def get_user_by_telegram_id(db: AsyncSession, telegram_id: str) -> Optional[User]:
+        """Получить пользователя по Telegram ID асинхронно"""
+        result = await db.execute(
+            select(User).where(User.telegram_id == telegram_id)
+        )
+        return result.scalars().first()
+    
+    @staticmethod
+    async def create_user(db: AsyncSession, user_data: UserCreate) -> Optional[User]:
+        """Создать нового пользователя асинхронно"""
+        try:
+            # Проверяем, не существует ли уже пользователь
+            existing_user = await UserService.get_user_by_telegram_id(db, user_data.telegram_id)
+            if existing_user:
+                logger.info(f"User already exists: {user_data.telegram_id}")
+                return existing_user
+            
+            # Создаем нового пользователя
+            user = User(
+                id=UserService._generate_id(),
+                telegram_id=user_data.telegram_id,
+                username=user_data.username,
+                first_name=user_data.first_name,
+                last_name=user_data.last_name,
+                balance=user_data.balance or 0,
+                is_admin=user_data.is_admin or False
+            )
+            
+            db.add(user)
+            await db.commit()
+            await db.refresh(user)
+            
+            logger.info(f"User created: {user.telegram_id}")
+            return user
+            
+        except Exception as e:
+            logger.error(f"Error creating user: {e}")
+            await db.rollback()
+            return None
+    
+    @staticmethod
+    async def update_user_balance(db: AsyncSession, telegram_id: str, new_balance: int) -> Optional[User]:
+        """Обновить баланс пользователя асинхронно"""
+        try:
+            user = await UserService.get_user_by_telegram_id(db, telegram_id)
+            if not user:
+                logger.error(f"User not found for balance update: {telegram_id}")
+                return None
+            
+            old_balance = user.balance
+            user.balance = new_balance
+            
+            await db.commit()
+            await db.refresh(user)
+            
+            logger.info(f"User balance updated: {telegram_id}, {old_balance} -> {new_balance}")
+            return user
+            
+        except Exception as e:
+            logger.error(f"Error updating user balance: {e}")
+            await db.rollback()
+            return None
+    
+    # Остальные методы аналогично с async/await...
+    
+    @staticmethod
+    def _generate_id() -> str:
+        """Генерировать уникальный ID"""
+        import uuid
+        return str(uuid.uuid4())
+
+================================================================================
+FILE: app\services\__init__.py
+================================================================================
+
+
+
+================================================================================
+FILE: app\services\sms\adapter.py
+================================================================================
+
+import logging
+from typing import Optional, Dict, Any
+from .providers.base_provider import BaseSMSProvider
+from .providers.dummy_provider import DummyProvider
+
+logger = logging.getLogger(__name__)
+
+class SMSAdapter:
+    """Адаптер для работы с различными SMS провайдерами"""
+    
+    def __init__(self, provider_name: str = "dummy", api_key: Optional[str] = None):
+        self.provider_name = provider_name.lower()
+        self.api_key = api_key
+        self.provider = self._initialize_provider()
+        
+    def _initialize_provider(self) -> BaseSMSProvider:
+        """Инициализировать SMS провайдера"""
+        try:
+            if self.provider_name == "dummy":
+                logger.info("Initializing dummy SMS provider")
+                return DummyProvider(api_key=self.api_key)
+            else:
+                logger.error(f"Unknown SMS provider: {self.provider_name}")
+                # Возвращаем dummy provider как fallback
+                logger.info("Falling back to dummy SMS provider")
+                return DummyProvider(api_key=self.api_key)
+                
+        except Exception as e:
+            logger.error(f"Failed to initialize SMS provider {self.provider_name}: {e}")
+            # Возвращаем dummy provider как fallback
+            logger.info("Falling back to dummy SMS provider")
+            return DummyProvider(api_key=self.api_key)
+    
+    async def get_number(self, country_id: str, service_id: str) -> Optional[Dict[str, Any]]:
+        """Получить номер телефона"""
+        try:
+            return await self.provider.get_number(country_id, service_id)
+        except Exception as e:
+            logger.error(f"Error getting number: {e}")
+            return None
+    
+    async def get_sms(self, order_id: str) -> Optional[Dict[str, Any]]:
+        """Получить SMS сообщения"""
+        try:
+            return await self.provider.get_sms(order_id)
+        except Exception as e:
+            logger.error(f"Error getting SMS: {e}")
+            return None
+    
+    async def cancel_number(self, order_id: str) -> bool:
+        """Отменить номер"""
+        try:
+            return await self.provider.cancel_number(order_id)
+        except Exception as e:
+            logger.error(f"Error cancelling number: {e}")
+            return False
+    
+    async def get_balance(self) -> Optional[float]:
+        """Получить баланс"""
+        try:
+            return await self.provider.get_balance()
+        except Exception as e:
+            logger.error(f"Error getting balance: {e}")
+            return None
+    
+    async def get_countries(self) -> Optional[Dict[str, Any]]:
+        """Получить список стран"""
+        try:
+            return await self.provider.get_countries()
+        except Exception as e:
+            logger.error(f"Error getting countries: {e}")
+            return None
+    
+    async def get_services(self) -> Optional[Dict[str, Any]]:
+        """Получить список сервисов"""
+        try:
+            return await self.provider.get_services()
+        except Exception as e:
+            logger.error(f"Error getting services: {e}")
+            return None
+
+# Совместимость со старым кодом
+class SMSProviderFactory:
+    """Фабрика SMS провайдеров (для совместимости)"""
+    
+    @staticmethod
+    def create_provider(provider_name: str = "dummy", api_key: Optional[str] = None, **kwargs) -> SMSAdapter:
+        """Создать SMS провайдера"""
+        # Игнорируем лишние kwargs для совместимости
+        return SMSAdapter(provider_name=provider_name, api_key=api_key)
+
+================================================================================
+FILE: app\services\sms\validator.py
+================================================================================
+
+import re
+import logging
+from datetime import datetime
+from typing import Optional, Dict, Any
+from ...schemas.schemas import SMSWebhookData, Message
+
+logger = logging.getLogger(__name__)
+
+class SMSValidator:
+    """Валидатор SMS данных - промежуточный файл для обработки данных перед отправкой во фронт"""
+    
+    @staticmethod
+    def extract_verification_code(message_text: str) -> Optional[str]:
+        """Извлечь код верификации из SMS текста"""
+        if not message_text:
+            return None
+        
+        # Различные паттерны для поиска кода
+        patterns = [
+            r'\b(\d{4,6})\b',  # 4-6 цифр подряд
+            r'код:?\s*(\d+)',  # "код: 12345"
+            r'code:?\s*(\d+)',  # "code: 12345" 
+            r'verification:?\s*(\d+)',  # "verification: 12345"
+            r'confirm:?\s*(\d+)',  # "confirm: 12345"
+            r'your\s+code:?\s*(\d+)',  # "your code: 12345"
+            r'(\d+)\s+is\s+your',  # "12345 is your code"
+            r'(\d{4,6})\D',  # 4-6 цифр с не-цифрой после
+        ]
+        
+        for pattern in patterns:
+            matches = re.findall(pattern, message_text, re.IGNORECASE)
+            for match in matches:
+                if isinstance(match, tuple):
+                    match = match[0]
+                if 4 <= len(match) <= 6 and match.isdigit():
+                    logger.info(f"Extracted code '{match}' from message: {message_text}")
+                    return match
+        
+        logger.warning(f"No verification code found in message: {message_text}")
+        return None
+    
+    @staticmethod
+    def validate_phone_number(phone_number: str) -> bool:
+        """Проверить корректность номера телефона"""
+        if not phone_number:
+            return False
+        
+        # Убираем все кроме цифр и +
+        clean_number = re.sub(r'[^\d+]', '', phone_number)
+        
+        # Должен начинаться с + и содержать от 10 до 15 цифр
+        pattern = r'^\+\d{10,15}'
+        is_valid = bool(re.match(pattern, clean_number))
+        
+        if not is_valid:
+            logger.warning(f"Invalid phone number format: {phone_number}")
+        
+        return is_valid
+    
+    @staticmethod
+    def sanitize_message_text(message_text: str) -> str:
+        """Очистить текст сообщения от лишних символов"""
+        if not message_text:
+            return ""
+        
+        # Убираем лишние пробелы и переносы строк
+        cleaned = re.sub(r'\s+', ' ', message_text.strip())
+        
+        # Убираем специальные символы, которые могут сломать JSON
+        cleaned = re.sub(r'[\x00-\x1f\x7f-\x9f]', '', cleaned)
+        
+        return cleaned
+    
+    @staticmethod
+    def validate_webhook_data(data: Dict[str, Any]) -> Optional[SMSWebhookData]:
+        """Валидировать данные вебхука от SMS сервиса"""
+        try:
+            # Обязательные поля
+            required_fields = ['order_id', 'phone_number', 'message_text']
+            for field in required_fields:
+                if field not in data or not data[field]:
+                    logger.error(f"Missing required field in webhook data: {field}")
+                    return None
+            
+            # Валидация номера телефона
+            if not SMSValidator.validate_phone_number(data['phone_number']):
+                logger.error(f"Invalid phone number in webhook: {data['phone_number']}")
+                return None
+            
+            # Очистка и извлечение кода
+            message_text = SMSValidator.sanitize_message_text(data['message_text'])
+            code = SMSValidator.extract_verification_code(message_text)
+            
+            # Создаем объект с валидированными данными
+            webhook_data = SMSWebhookData(
+                order_id=str(data['order_id']),
+                phone_number=data['phone_number'],
+                message_text=message_text,
+                code=code,
+                timestamp=data.get('timestamp', datetime.now())
+            )
+            
+            logger.info(f"Successfully validated webhook data for order: {webhook_data.order_id}")
+            return webhook_data
+            
+        except Exception as e:
+            logger.error(f"Error validating webhook data: {e}")
+            return None
+    
+    @staticmethod
+    def prepare_frontend_message(order_id: str, message_text: str, code: Optional[str] = None) -> Dict[str, Any]:
+        """Подготовить данные сообщения для отправки во фронтенд"""
+        
+        # Если код не передан, попытаемся извлечь
+        if not code:
+            code = SMSValidator.extract_verification_code(message_text)
+        
+        # Очищаем текст
+        clean_text = SMSValidator.sanitize_message_text(message_text)
+        
+        frontend_data = {
+            "order_id": order_id,
+            "message_text": clean_text,
+            "code": code,
+            "has_code": bool(code),
+            "received_at": datetime.now().isoformat(),
+            "status": "received"
+        }
+        
+        logger.info(f"Prepared frontend message for order {order_id}: code={'found' if code else 'not found'}")
+        return frontend_data
+    
+    @staticmethod
+    def validate_order_status_transition(current_status: str, new_status: str) -> bool:
+        """Проверить корректность перехода статуса заказа"""
+        
+        valid_transitions = {
+            "pending": ["received", "expired", "cancelled"],
+            "received": [],  # Финальный статус
+            "expired": [],   # Финальный статус
+            "cancelled": []  # Финальный статус
+        }
+        
+        if current_status not in valid_transitions:
+            logger.error(f"Invalid current status: {current_status}")
+            return False
+        
+        if new_status not in valid_transitions[current_status]:
+            logger.warning(f"Invalid status transition: {current_status} -> {new_status}")
+            return False
+        
+        return True
+    
+    @staticmethod
+    def is_message_duplicate(existing_messages: list, new_message_text: str) -> bool:
+        """Проверить, является ли сообщение дубликатом"""
+        if not existing_messages or not new_message_text:
+            return False
+        
+        clean_new = SMSValidator.sanitize_message_text(new_message_text)
+        
+        for msg in existing_messages:
+            if hasattr(msg, 'text'):
+                existing_text = SMSValidator.sanitize_message_text(msg.text)
+                if existing_text == clean_new:
+                    logger.warning(f"Duplicate message detected: {clean_new}")
+                    return True
+        
+        return False
+
+================================================================================
+FILE: app\services\sms\webhook.py
+================================================================================
+
+import asyncio
+import logging
+from typing import Dict, Any, Optional
+from datetime import datetime
+from sqlalchemy.orm import Session
+from ...core.database import get_db
+from ...models.models import Order, Message, User
+from ...schemas.schemas import SMSWebhookData, OrderStatus, MessageCreate
+from .validator import SMSValidator
+from ..order_service import OrderService
+
+logger = logging.getLogger(__name__)
+
+class SMSWebhookHandler:
+    """Обработчик вебхуков от SMS сервисов"""
+    
+    def __init__(self):
+        self.order_service = OrderService()
+    
+    async def process_webhook(self, webhook_data: Dict[str, Any], provider_name: str = "unknown") -> bool:
+        """
+        Основной метод обработки вебхука
+        
+        Args:
+            webhook_data: Данные от SMS сервиса
+            provider_name: Название провайдера
+            
+        Returns:
+            bool: Успешность обработки
+        """
+        try:
+            logger.info(f"Processing webhook from {provider_name}: {webhook_data}")
+            
+            # Валидируем входящие данные
+            validated_data = SMSValidator.validate_webhook_data(webhook_data)
+            if not validated_data:
+                logger.error("Webhook data validation failed")
+                return False
+            
+            # Получаем сессию БД
+            db = next(get_db())
+            try:
+                return await self._process_validated_webhook(db, validated_data, provider_name)
+            finally:
+                db.close()
+                
+        except Exception as e:
+            logger.error(f"Error processing webhook: {e}")
+            return False
+    
+    async def _process_validated_webhook(self, db: Session, data: SMSWebhookData, provider_name: str) -> bool:
+        """Обработать валидированные данные вебхука"""
+        
+        # Ищем заказ по ID или номеру телефона
+        order = await self._find_order(db, data.order_id, data.phone_number)
+        if not order:
+            logger.warning(f"Order not found for webhook data: {data.order_id}, {data.phone_number}")
+            return False
+        
+        # Проверяем, можно ли обновить заказ
+        if not SMSValidator.validate_order_status_transition(order.status, "received"):
+            logger.warning(f"Invalid status transition for order {order.id}: {order.status} -> received")
+            return False
+        
+        # Проверяем на дубликаты сообщений
+        existing_messages = db.query(Message).filter(Message.order_id == order.id).all()
+        if SMSValidator.is_message_duplicate(existing_messages, data.message_text):
+            logger.info(f"Duplicate message ignored for order {order.id}")
+            return True
+        
+        # Создаем сообщение
+        message_data = MessageCreate(
+            order_id=order.id,
+            text=data.message_text,
+            code=data.code
+        )
+        
+        message = Message(
+            id=self._generate_id(),
+            order_id=message_data.order_id,
+            text=message_data.text,
+            code=message_data.code,
+            received_at=datetime.now()
+        )
+        
+        # Обновляем статус заказа
+        order.status = OrderStatus.RECEIVED.value
+        
+        # Сохраняем изменения
+        db.add(message)
+        db.commit()
+        db.refresh(message)
+        db.refresh(order)
+        
+        logger.info(f"SMS processed successfully for order {order.id}")
+        
+        # Отправляем уведомление во фронтенд через SSE
+        await self._notify_frontend(order, message)
+        
+        return True
+    
+    async def _find_order(self, db: Session, order_id: str, phone_number: str) -> Optional[Order]:
+        """Найти заказ по ID или номеру телефона"""
+        
+        # Сначала ищем по прямому ID
+        order = db.query(Order).filter(Order.id == order_id).first()
+        if order:
+            return order
+        
+        # Затем по external_order_id (ID от SMS сервиса)
+        order = db.query(Order).filter(Order.external_order_id == order_id).first()
+        if order:
+            return order
+        
+        # В крайнем случае по номеру телефона и статусу pending
+        order = db.query(Order).filter(
+            Order.phone_number == phone_number,
+            Order.status == OrderStatus.PENDING.value
+        ).first()
+        
+        return order
+    
+    async def _notify_frontend(self, order: Order, message: Message):
+        """Отправить уведомление во фронтенд через SSE"""
+        try:
+            from ...api.sse import sse_manager
+            
+            # Подготавливаем данные для фронтенда
+            frontend_data = SMSValidator.prepare_frontend_message(
+                order_id=order.id,
+                message_text=message.text,
+                code=message.code
+            )
+            
+            # Отправляем уведомление пользователю
+            await sse_manager.send_to_user(
+                user_id=order.user_telegram_id,
+                event_type="sms_received",
+                data=frontend_data
+            )
+            
+            # Отправляем обновление статуса заказа
+            await sse_manager.send_to_user(
+                user_id=order.user_telegram_id,
+                event_type="order_status_updated",
+                data={
+                    "order_id": order.id,
+                    "status": order.status,
+                    "message": "SMS код получен!"
+                }
+            )
+            
+            logger.info(f"Frontend notifications sent for order {order.id}")
+            
+        except Exception as e:
+            logger.error(f"Error sending frontend notification: {e}")
+    
+    def _generate_id(self) -> str:
+        """Генерировать уникальный ID"""
+        import uuid
+        return str(uuid.uuid4())
+    
+    async def handle_provider_specific_webhook(self, provider_name: str, raw_data: Dict[str, Any]) -> bool:
+        """Обработать вебхук от конкретного провайдера"""
+        
+        # Здесь можно добавить специфическую логику для разных провайдеров
+        provider_handlers = {
+            "dummy": self._handle_dummy_webhook,
+            "smshub": self._handle_smshub_webhook,
+            "5sim": self._handle_5sim_webhook,
+        }
+        
+        handler = provider_handlers.get(provider_name, self._handle_generic_webhook)
+        return await handler(raw_data)
+    
+    async def _handle_dummy_webhook(self, raw_data: Dict[str, Any]) -> bool:
+        """Обработать вебхук от dummy провайдера"""
+        # Dummy провайдер отправляет данные в стандартном формате
+        return await self.process_webhook(raw_data, "dummy")
+    
+    async def _handle_smshub_webhook(self, raw_data: Dict[str, Any]) -> bool:
+        """Обработать вебхук от SMSHub"""
+        # Преобразуем формат SMSHub в стандартный
+        try:
+            webhook_data = {
+                "order_id": raw_data.get("id"),
+                "phone_number": raw_data.get("phone"),
+                "message_text": raw_data.get("text"),
+                "timestamp": datetime.now()
+            }
+            return await self.process_webhook(webhook_data, "smshub")
+        except Exception as e:
+            logger.error(f"Error processing SMSHub webhook: {e}")
+            return False
+    
+    async def _handle_5sim_webhook(self, raw_data: Dict[str, Any]) -> bool:
+        """Обработать вебхук от 5sim"""
+        # Преобразуем формат 5sim в стандартный
+        try:
+            webhook_data = {
+                "order_id": raw_data.get("order_id"),
+                "phone_number": raw_data.get("number"),
+                "message_text": raw_data.get("sms"),
+                "timestamp": datetime.now()
+            }
+            return await self.process_webhook(webhook_data, "5sim")
+        except Exception as e:
+            logger.error(f"Error processing 5sim webhook: {e}")
+            return False
+    
+    async def _handle_generic_webhook(self, raw_data: Dict[str, Any]) -> bool:
+        """Обработать вебхук от неизвестного провайдера"""
+        logger.warning(f"Using generic webhook handler for data: {raw_data}")
+        return await self.process_webhook(raw_data, "generic")
+
+# Глобальный экземпляр для использования в роутах
+webhook_handler = SMSWebhookHandler()
+
+================================================================================
+FILE: app\services\sms\__init__.py
+================================================================================
+
+
+
+================================================================================
+FILE: app\services\sms\providers\base_provider.py
+================================================================================
+
+from abc import ABC, abstractmethod
+from typing import Optional, Dict, Any
+from dataclasses import dataclass
+
+@dataclass
+class SMSOrderResult:
+    """Результат заказа номера"""
+    success: bool
+    order_id: Optional[str] = None
+    phone_number: Optional[str] = None
+    error_message: Optional[str] = None
+
+@dataclass
+class SMSStatusResult:
+    """Результат проверки статуса SMS"""
+    success: bool
+    status: Optional[str] = None  # pending, received, expired
+    messages: Optional[list] = None
+    error_message: Optional[str] = None
+
+class BaseSMSProvider(ABC):
+    """Базовый класс для SMS провайдеров"""
+    
+    def __init__(self, api_key: Optional[str] = None):
+        self.api_key = api_key
+    
+    @abstractmethod
+    async def get_number(self, country_id: str, service_id: str) -> Optional[Dict[str, Any]]:
+        """Получить номер телефона"""
+        pass
+    
+    @abstractmethod
+    async def get_sms(self, order_id: str) -> Optional[Dict[str, Any]]:
+        """Получить SMS сообщения"""
+        pass
+    
+    @abstractmethod
+    async def cancel_number(self, order_id: str) -> bool:
+        """Отменить номер"""
+        pass
+    
+    @abstractmethod
+    async def get_balance(self) -> Optional[float]:
+        """Получить баланс"""
+        pass
+    
+    @abstractmethod
+    async def get_countries(self) -> Optional[Dict[str, Any]]:
+        """Получить список стран"""
+        pass
+    
+    @abstractmethod
+    async def get_services(self) -> Optional[Dict[str, Any]]:
+        """Получить список сервисов"""
+        pass
+
+================================================================================
+FILE: app\services\sms\providers\dummy_provider.py
+================================================================================
+
+import asyncio
+import logging
+from typing import Optional, Dict, Any
+from datetime import datetime
+from .base_provider import BaseSMSProvider
+
+logger = logging.getLogger(__name__)
+
+class DummyProvider(BaseSMSProvider):
+    """Dummy SMS провайдер для тестирования"""
+    
+    def __init__(self, api_key: Optional[str] = None):
+        super().__init__(api_key)
+        self.orders = {}  # Хранилище для заказов
+        
+    async def get_number(self, country_id: str, service_id: str) -> Optional[Dict[str, Any]]:
+        """Получить номер телефона"""
+        try:
+            # Генерируем фейковый номер
+            order_id = f"dummy_order_{datetime.now().timestamp():.0f}"
+            phone_number = f"+7900{datetime.now().microsecond % 1000000:06d}"
+            
+            # Сохраняем заказ
+            self.orders[order_id] = {
+                "phone_number": phone_number,
+                "status": "pending",
+                "messages": [],
+                "created_at": datetime.now()
+            }
+            
+            logger.info(f"Generated dummy number: {phone_number} for order: {order_id}")
+            
+            return {
+                "success": True,
+                "order_id": order_id,
+                "phone_number": phone_number,
+                "cost": 15.0
+            }
+            
+        except Exception as e:
+            logger.error(f"Error in dummy get_number: {e}")
+            return {
+                "success": False,
+                "error": str(e)
+            }
+    
+    async def get_sms(self, order_id: str) -> Optional[Dict[str, Any]]:
+        """Получить SMS сообщения"""
+        try:
+            if order_id not in self.orders:
+                return {
+                    "success": False,
+                    "error": "Order not found"
+                }
+            
+            order = self.orders[order_id]
+            
+            # Имитируем получение SMS через некоторое время
+            if not order["messages"] and order["status"] == "pending":
+                # После 10 секунд добавляем тестовое SMS
+                elapsed = (datetime.now() - order["created_at"]).total_seconds()
+                if elapsed > 10:
+                    test_message = {
+                        "text": f"Ваш код подтверждения: {12345}",
+                        "received_at": datetime.now().isoformat(),
+                        "code": "12345"
+                    }
+                    order["messages"].append(test_message)
+                    order["status"] = "received"
+                    
+                    logger.info(f"Added dummy SMS to order {order_id}: {test_message['text']}")
+            
+            return {
+                "success": True,
+                "status": order["status"],
+                "messages": order["messages"],
+                "phone_number": order["phone_number"]
+            }
+            
+        except Exception as e:
+            logger.error(f"Error in dummy get_sms: {e}")
+            return {
+                "success": False,
+                "error": str(e)
+            }
+    
+    async def cancel_number(self, order_id: str) -> bool:
+        """Отменить номер"""
+        try:
+            if order_id in self.orders:
+                self.orders[order_id]["status"] = "cancelled"
+                logger.info(f"Cancelled dummy order: {order_id}")
+                return True
+            return False
+            
+        except Exception as e:
+            logger.error(f"Error in dummy cancel_number: {e}")
+            return False
+    
+    async def get_balance(self) -> Optional[float]:
+        """Получить баланс"""
+        try:
+            # Возвращаем фейковый баланс
+            return 100.50
+        except Exception as e:
+            logger.error(f"Error in dummy get_balance: {e}")
+            return None
+    
+    async def get_countries(self) -> Optional[Dict[str, Any]]:
+        """Получить список стран"""
+        try:
+            countries = {
+                "0": {"name": "Россия", "code": "RU", "flag": "🇷🇺", "price": 15},
+                "1": {"name": "Украина", "code": "UA", "flag": "🇺🇦", "price": 22},
+                "2": {"name": "Беларусь", "code": "BY", "flag": "🇧🇾", "price": 18},
+                "3": {"name": "Казахстан", "code": "KZ", "flag": "🇰🇿", "price": 20},
+            }
+            return countries
+            
+        except Exception as e:
+            logger.error(f"Error in dummy get_countries: {e}")
+            return None
+    
+    async def get_services(self) -> Optional[Dict[str, Any]]:
+        """Получить список сервисов"""
+        try:
+            services = {
+                "tg": {"name": "Telegram", "icon": "fab fa-telegram-plane", "price": 15},
+                "wa": {"name": "WhatsApp", "icon": "fab fa-whatsapp", "price": 18},
+                "vk": {"name": "VKontakte", "icon": "fab fa-vk", "price": 12},
+                "ok": {"name": "Odnoklassniki", "icon": "fas fa-circle", "price": 10},
+            }
+            return services
+            
+        except Exception as e:
+            logger.error(f"Error in dummy get_services: {e}")
+            return None
+
+================================================================================
+FILE: app\services\sms\providers\__init__.py
+================================================================================
+
+
+
+================================================================================
+FILE: app\utils\telegram.py
+================================================================================
+
+import hashlib
+import hmac
+import json
+import logging
+from typing import Optional, Dict, Any
+from urllib.parse import unquote
+from ..core.config import settings
+
+logger = logging.getLogger(__name__)
+
+def validate_telegram_init_data(init_data: str) -> Optional[Dict[str, Any]]:
+    """
+    Валидировать данные инициализации Telegram WebApp
+    
+    Args:
+        init_data: Строка с данными от Telegram WebApp
+        
+    Returns:
+        Dict с данными пользователя или None если валидация не прошла
+    """
+    try:
+        if not init_data or not settings.telegram_bot_token:
+            logger.warning("Missing init_data or bot token")
+            return None
+        
+        # Парсим параметры
+        params = {}
+        for item in init_data.split('&'):
+            if '=' in item:
+                key, value = item.split('=', 1)
+                params[key] = unquote(value)
+        
+        # Извлекаем hash для проверки
+        received_hash = params.pop('hash', '')
+        if not received_hash:
+            logger.warning("No hash in init_data")
+            return None
+        
+        # Создаем строку для проверки
+        data_check_string = '\n'.join([
+            f"{key}={value}" 
+            for key, value in sorted(params.items())
+        ])
+        
+        # Создаем секретный ключ
+        secret_key = hmac.new(
+            "WebAppData".encode(), 
+            settings.telegram_bot_token.encode(), 
+            hashlib.sha256
+        ).digest()
+        
+        # Вычисляем hash
+        calculated_hash = hmac.new(
+            secret_key,
+            data_check_string.encode(),
+            hashlib.sha256
+        ).hexdigest()
+        
+        # Проверяем hash
+        if not hmac.compare_digest(calculated_hash, received_hash):
+            logger.warning("Invalid hash in Telegram init_data")
+            return None
+        
+        # Парсим данные пользователя
+        user_data = {}
+        if 'user' in params:
+            try:
+                user_info = json.loads(params['user'])
+                user_data = {
+                    'id': user_info.get('id'),
+                    'first_name': user_info.get('first_name'),
+                    'last_name': user_info.get('last_name'),
+                    'username': user_info.get('username'),
+                    'language_code': user_info.get('language_code'),
+                    'is_premium': user_info.get('is_premium', False)
+                }
+            except json.JSONDecodeError as e:
+                logger.error(f"Error parsing user data: {e}")
+                return None
+        
+        logger.info(f"Telegram user validated: {user_data.get('id')}")
+        return user_data
+        
+    except Exception as e:
+        logger.error(f"Error validating Telegram init_data: {e}")
+        return None
+
+def create_telegram_auth_middleware():
+    """Создать middleware для аутентификации Telegram"""
+    
+    async def telegram_auth_middleware(request, call_next):
+        """Middleware для проверки аутентификации Telegram"""
+        
+        # Пропускаем публичные маршруты
+        public_paths = ['/docs', '/openapi.json', '/webhook/', '/health']
+        if any(request.url.path.startswith(path) for path in public_paths):
+            return await call_next(request)
+        
+        # Получаем данные инициализации из заголовков
+        init_data = request.headers.get('X-Telegram-Init-Data')
+        if not init_data:
+            # Пытаемся получить из параметров запроса (для тестирования)
+            init_data = request.query_params.get('init_data')
+        
+        if init_data:
+            user_data = validate_telegram_init_data(init_data)
+            if user_data:
+                # Добавляем данные пользователя в request
+                request.state.telegram_user = user_data
+                return await call_next(request)
+        
+        # Для разработки можем пропустить проверку
+        if settings.debug:
+            # Создаем тестового пользователя
+            request.state.telegram_user = {
+                'id': 'sample_user',
+                'first_name': 'Test',
+                'last_name': 'User',
+                'username': 'testuser'
+            }
+            return await call_next(request)
+        
+        # Возвращаем ошибку аутентификации
+        from fastapi import HTTPException
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    
+    return telegram_auth_middleware
+
+def get_current_telegram_user(request) -> Optional[Dict[str, Any]]:
+    """Получить текущего пользователя Telegram из request"""
+    return getattr(request.state, 'telegram_user', None)
+
+def format_telegram_name(user_data: Dict[str, Any]) -> str:
+    """Форматировать имя пользователя Telegram"""
+    first_name = user_data.get('first_name', '')
+    last_name = user_data.get('last_name', '')
+    username = user_data.get('username', '')
+    
+    if first_name and last_name:
+        return f"{first_name} {last_name}"
+    elif first_name:
+        return first_name
+    elif username:
+        return f"@{username}"
+    else:
+        return "Unknown User"
+
+def is_telegram_premium(user_data: Dict[str, Any]) -> bool:
+    """Проверить, является ли пользователь Telegram Premium"""
+    return user_data.get('is_premium', False)
+
+def create_webapp_url(path: str = "", start_param: str = "") -> str:
+    """Создать URL для Telegram WebApp"""
+    base_url = settings.webapp_url.rstrip('/')
+    if path:
+        path = path.lstrip('/')
+        base_url = f"{base_url}/{path}"
+    
+    if start_param:
+        base_url = f"{base_url}?start_param={start_param}"
+    
+    return base_url
+
+def create_telegram_bot_url(start_param: str = "") -> str:
+    """Создать URL для Telegram бота"""
+    bot_token = settings.telegram_bot_token
+    if not bot_token:
+        return ""
+    
+    # Извлекаем имя бота из токена
+    bot_name = bot_token.split(':')[0] if ':' in bot_token else ""
+    
+    url = f"https://t.me/{bot_name}"
+    if start_param:
+        url = f"{url}?start={start_param}"
+    
+    return url
+
+def validate_telegram_callback_query(callback_data: str) -> bool:
+    """Валидировать callback query от Telegram"""
+    try:
+        # Простая валидация длины и формата
+        if not callback_data or len(callback_data) > 64:
+            return False
+        
+        # Проверяем, что содержит только допустимые символы
+        allowed_chars = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-:")
+        if not all(c in allowed_chars for c in callback_data):
+            return False
+        
+        return True
+        
+    except Exception as e:
+        logger.error(f"Error validating callback query: {e}")
+        return False
+
+================================================================================
+FILE: app\utils\__init__.py
+================================================================================
+

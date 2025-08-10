@@ -1,24 +1,39 @@
-from sqlalchemy import create_engine
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
 from .config import settings
 
-engine = create_engine(
-    settings.database_url,
+# Создание асинхронного движка
+engine = create_async_engine(
+    settings.async_database_url,
     echo=settings.database_echo,
-    connect_args={"check_same_thread": False} if "sqlite" in settings.database_url else {}
+    future=True
 )
 
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+# Асинхронная сессия
+AsyncSessionLocal = async_sessionmaker(
+    engine,
+    class_=AsyncSession,
+    expire_on_commit=False,
+    autoflush=False,
+    autocommit=False
+)
 
 Base = declarative_base()
 
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
+async def get_async_db():
+    """Получить асинхронную сессию БД"""
+    async with AsyncSessionLocal() as session:
+        try:
+            yield session
+        finally:
+            await session.close()
 
-def create_tables():
-    Base.metadata.create_all(bind=engine)
+async def create_tables():
+    """Создать таблицы асинхронно"""
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+async def drop_tables():
+    """Удалить все таблицы (для тестов)"""
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.drop_all)

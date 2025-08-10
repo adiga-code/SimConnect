@@ -3,8 +3,9 @@ from typing import List
 import os
 
 class Settings(BaseSettings):
-    # Database
-    database_url: str = "sqlite:///./onlinesim.db"
+    # Database - асинхронные URL
+    #database_url: str = "sqlite:///./onlinesim.db"
+    async_database_url: str = "sqlite+aiosqlite:///./onlinesim.db"
     database_echo: bool = False
     
     # FastAPI
@@ -34,7 +35,7 @@ class Settings(BaseSettings):
         """Получить список разрешенных CORS origins"""
         origins = os.getenv("CORS_ORIGINS", "http://localhost:5173,http://localhost:3000")
         return [origin.strip() for origin in origins.split(",") if origin.strip()]
-
+    
     # Server
     host: str = "0.0.0.0"
     port: int = 8000
@@ -48,4 +49,3 @@ class Settings(BaseSettings):
         case_sensitive = False
 
 settings = Settings()
-

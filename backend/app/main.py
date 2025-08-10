@@ -7,6 +7,8 @@ import logging
 from contextlib import asynccontextmanager
 
 from .core.config import settings
+from .core.database import create_tables
+from .data_init import initialize_data  # Исправленный импорт
 from .api.routes import router
 from .services.sms.adapter import SMSAdapter
 
@@ -24,16 +26,29 @@ async def lifespan(app: FastAPI):
     
     # Startup
     try:
+        # 1. Создание таблиц БД асинхронно
+        logger.info("Creating database tables...")
+        await create_tables()
+        logger.info("✅ Database tables created")
+        
+        # 2. Инициализация данных асинхронно
+        logger.info("Loading initial data...")
+        await initialize_data()
+        logger.info("✅ Initial data loaded")
+        
+        # 3. SMS адаптер
         logger.info("Initializing SMS adapter...")
         sms_adapter = SMSAdapter(
-            provider_name=getattr(settings, 'SMS_PROVIDER', 'dummy'),
-            api_key=getattr(settings, 'SMS_API_KEY', None)
+            provider_name=getattr(settings, 'sms_provider', 'dummy'),
+            api_key=getattr(settings, 'sms_api_key', None)
         )
-        logger.info("SMS adapter initialized successfully")
+        logger.info("✅ SMS adapter initialized")
+        
     except Exception as e:
-        logger.error(f"Failed to initialize SMS adapter: {e}")
-        # Используем dummy provider как fallback
-        sms_adapter = SMSAdapter(provider_name="dummy")
+        logger.error(f"❌ Initialization failed: {e}")
+        # Fallback
+        if sms_adapter is None:
+            sms_adapter = SMSAdapter(provider_name="dummy")
     
     yield
     
@@ -51,7 +66,7 @@ app = FastAPI(
 # CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # В Codespaces разрешаем все origins
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -72,16 +87,13 @@ if os.path.exists("/app/frontend/dist"):
     @app.get("/{full_path:path}")
     async def catch_all(full_path: str):
         """Перенаправляем все остальные запросы на index.html для SPA"""
-        # Проверяем, не запрос ли это к API
         if full_path.startswith("api/"):
             return {"error": "Not found"}
         
-        # Проверяем, существует ли файл
         file_path = f"/app/frontend/dist/{full_path}"
         if os.path.exists(file_path) and os.path.isfile(file_path):
             return FileResponse(file_path)
         
-        # Для всех остальных запросов возвращаем index.html
         return FileResponse("/app/frontend/dist/index.html")
 
 @app.get("/health")
@@ -89,13 +101,12 @@ async def health_check():
     """Проверка состояния сервиса"""
     return {
         "status": "ok",
-        "sms_provider": settings.SMS_PROVIDER if sms_adapter else "not initialized"
+        "sms_provider": settings.sms_provider if sms_adapter else "not initialized"
     }
 
 def get_sms_adapter() -> SMSAdapter:
     """Получить экземпляр SMS адаптера"""
     global sms_adapter
     if sms_adapter is None:
-        # Создаем fallback адаптер если основной не инициализирован
         sms_adapter = SMSAdapter(provider_name="dummy")
     return sms_adapter

@@ -1,6 +1,7 @@
 import logging
-from sqlalchemy.orm import Session
-from .core.database import SessionLocal
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
+from .core.database import AsyncSessionLocal
 from .models.models import Country, Service, User, Setting, Statistic
 from .schemas.schemas import CountryStatus
 from datetime import datetime
@@ -9,27 +10,28 @@ import uuid
 logger = logging.getLogger(__name__)
 
 async def initialize_data():
-    """Инициализировать начальные данные в БД"""
-    db = SessionLocal()
-    try:
-        await _init_countries(db)
-        await _init_services(db)
-        await _init_sample_user(db)
-        await _init_settings(db)
-        await _init_statistics(db)
-        
-        db.commit()
-        logger.info("Initial data initialization completed")
-        
-    except Exception as e:
-        logger.error(f"Error initializing data: {e}")
-        db.rollback()
-    finally:
-        db.close()
+    """Инициализировать начальные данные в БД асинхронно"""
+    async with AsyncSessionLocal() as db:
+        try:
+            await _init_countries(db)
+            await _init_services(db)
+            await _init_sample_user(db)
+            await _init_settings(db)
+            await _init_statistics(db)
+            
+            await db.commit()
+            logger.info("Initial data initialization completed")
+            
+        except Exception as e:
+            logger.error(f"Error initializing data: {e}")
+            await db.rollback()
+            raise
 
-async def _init_countries(db: Session):
-    """Инициализировать страны"""
-    if db.query(Country).count() > 0:
+async def _init_countries(db: AsyncSession):
+    """Инициализировать страны асинхронно"""
+    # Проверяем существующие записи
+    result = await db.execute(select(Country))
+    if result.scalars().first():
         logger.info("Countries already exist, skipping initialization")
         return
     
@@ -81,9 +83,10 @@ async def _init_countries(db: Session):
     
     logger.info(f"Created {len(countries_data)} countries")
 
-async def _init_services(db: Session):
-    """Инициализировать сервисы"""
-    if db.query(Service).count() > 0:
+async def _init_services(db: AsyncSession):
+    """Инициализировать сервисы асинхронно"""
+    result = await db.execute(select(Service))
+    if result.scalars().first():
         logger.info("Services already exist, skipping initialization")
         return
     
@@ -120,11 +123,15 @@ async def _init_services(db: Session):
     
     logger.info(f"Created {len(services_data)} services")
 
-async def _init_sample_user(db: Session):
-    """Инициализировать тестового пользователя"""
+async def _init_sample_user(db: AsyncSession):
+    """Инициализировать тестового пользователя асинхронно"""
     sample_telegram_id = "sample_user"
     
-    existing_user = db.query(User).filter(User.telegram_id == sample_telegram_id).first()
+    result = await db.execute(
+        select(User).where(User.telegram_id == sample_telegram_id)
+    )
+    existing_user = result.scalars().first()
+    
     if existing_user:
         logger.info("Sample user already exists, skipping initialization")
         return
@@ -142,9 +149,10 @@ async def _init_sample_user(db: Session):
     db.add(user)
     logger.info("Created sample user")
 
-async def _init_settings(db: Session):
-    """Инициализировать настройки"""
-    if db.query(Setting).count() > 0:
+async def _init_settings(db: AsyncSession):
+    """Инициализировать настройки асинхронно"""
+    result = await db.execute(select(Setting))
+    if result.scalars().first():
         logger.info("Settings already exist, skipping initialization")
         return
     
@@ -181,9 +189,10 @@ async def _init_settings(db: Session):
     
     logger.info(f"Created {len(settings_data)} settings")
 
-async def _init_statistics(db: Session):
-    """Инициализировать статистику"""
-    if db.query(Statistic).count() > 0:
+async def _init_statistics(db: AsyncSession):
+    """Инициализировать статистику асинхронно"""
+    result = await db.execute(select(Statistic))
+    if result.scalars().first():
         logger.info("Statistics already exist, skipping initialization")
         return
     
