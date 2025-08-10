@@ -13,28 +13,45 @@ interface MessageWithDetails extends Message {
 export function MessagesTab() {
   const { copyToClipboard, extractCode } = useCopyToClipboard();
   const { toast } = useToast();
+  
+  // Получаем telegramUser
+  const telegramUser = window.Telegram?.WebApp?.initDataUnsafe?.user;
+  const userId = telegramUser?.id?.toString() || "sample_user";
 
-  const { data: messages, isLoading } = useQuery<Message[]>({
-    queryKey: ["/api/messages"],
-  });
-
-  const { data: orders } = useQuery<Order[]>({
-    queryKey: ["/api/orders"],
+  // Получаем заказы пользователя (они уже содержат сообщения)
+  const { data: orders, isLoading: ordersLoading } = useQuery<Order[]>({
+    queryKey: ["/api/orders", userId],
+    queryFn: async () => {
+      const response = await fetch(`/api/orders?user_id=${userId}`);
+      if (!response.ok) throw new Error('Failed to fetch orders');
+      return response.json();
+    },
   });
 
   const { data: services } = useQuery<Service[]>({
     queryKey: ["/api/services"],
   });
 
-  const messagesWithDetails: MessageWithDetails[] = messages?.map(message => {
-    const order = orders?.find(o => o.id === message.orderId);
-    const service = services?.find(s => s.id === order?.serviceId);
-    return {
-      ...message,
-      order,
-      service,
-    };
-  }) || [];
+  // Извлекаем все сообщения из заказов
+  const allMessages: MessageWithDetails[] = [];
+  
+  orders?.forEach(order => {
+    if (order.messages && order.messages.length > 0) {
+      order.messages.forEach(message => {
+        const service = services?.find(s => s.id === order.serviceId);
+        allMessages.push({
+          ...message,
+          order,
+          service,
+        });
+      });
+    }
+  });
+
+  // Сортируем сообщения по времени получения (новые сначала)
+  const sortedMessages = allMessages.sort((a, b) => 
+    new Date(b.receivedAt).getTime() - new Date(a.receivedAt).getTime()
+  );
 
   const handleCopyCode = async (text: string) => {
     const code = extractCode(text);
@@ -102,7 +119,7 @@ export function MessagesTab() {
     return `${diffInDays} дн назад`;
   };
 
-  if (isLoading) {
+  if (ordersLoading) {
     return (
       <div className="p-4 space-y-3">
         {[...Array(2)].map((_, i) => (
@@ -129,7 +146,7 @@ export function MessagesTab() {
 
   return (
     <div className="p-4 space-y-3">
-      {messagesWithDetails.map((message) => (
+      {sortedMessages.map((message) => (
         <Card key={message.id} data-testid={`card-message-${message.id}`}>
           <CardContent className="p-4 space-y-3">
             <div className="flex items-center justify-between">
@@ -170,7 +187,7 @@ export function MessagesTab() {
         </Card>
       ))}
       
-      {messagesWithDetails.length === 0 && (
+      {sortedMessages.length === 0 && (
         <div className="text-center py-8 text-gray-500 dark:text-gray-400">
           Сообщений пока нет
         </div>
