@@ -7,11 +7,11 @@ services:
       dockerfile: backend/Dockerfile
     container_name: onlinesim_backend
     ports:
-      - "9080:8000"  # Второй проект на порту 9080
+      - "9080:8000"
     env_file:
       - .env
     volumes:
-      - backend_data:/app/data
+      - ./data:/app/data  # Bind mount вместо volume
     restart: unless-stopped
 
   telegram_bot:
@@ -25,5 +25,4 @@ services:
       - backend
     restart: unless-stopped
 
-volumes:
-  backend_data:
+# Убрать volumes section
