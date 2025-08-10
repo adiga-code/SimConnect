@@ -74,13 +74,50 @@ async def get_services(db: AsyncSession = Depends(get_async_db)) -> List[Dict[st
 
 @router.get("/users/{user_id}")
 async def get_user(user_id: str, db: AsyncSession = Depends(get_async_db)) -> Dict[str, Any]:
-    """Получить информацию о пользователе из БД"""
+    """Получить пользователя или создать автоматически"""
     try:
         logger.info(f"Getting user info for: {user_id}")
         
+        # Ищем пользователя
         user = await UserService.get_user_by_telegram_id(db, user_id)
+        
         if not user:
-            raise HTTPException(status_code=404, detail="User not found")
+            # Пользователь не найден - создаем автоматически
+            logger.info(f"User not found, creating: {user_id}")
+            
+            from ..schemas.schemas import UserCreate
+            
+            # Определяем имя пользователя
+            display_name = "User"
+            username = None
+            
+            # Если это числовой ID (реальный Telegram ID)
+            if user_id.isdigit():
+                username = f"user_{user_id}"
+                display_name = "Telegram User"
+            elif user_id == "sample_user":
+                username = "sample_user"
+                display_name = "Sample User"
+            else:
+                username = user_id
+                display_name = user_id.title()
+            
+            user_data = UserCreate(
+                telegram_id=user_id,
+                username=username,
+                first_name=display_name,
+                last_name=None,
+                balance=0,  # Новый пользователь с нулевым балансом
+                is_admin=False
+            )
+            
+            user = await UserService.create_user(db, user_data)
+            
+            if user:
+                logger.info(f"✅ Auto-created user: {user_id}")
+            else:
+                logger.error(f"❌ Failed to create user: {user_id}")
+                raise HTTPException(status_code=500, detail="Failed to create user")
         
         # Получаем заказы пользователя
         orders_result = await db.execute(
@@ -91,7 +128,10 @@ async def get_user(user_id: str, db: AsyncSession = Depends(get_async_db)) -> Di
         return {
             "id": user.telegram_id,
             "username": user.username,
+            "first_name": user.first_name,
+            "last_name": user.last_name,
             "balance": user.balance / 100,  # Конвертируем копейки в рубли
+            "is_admin": user.is_admin,
             "orders": [
                 {
                     "id": order.id,
@@ -107,7 +147,7 @@ async def get_user(user_id: str, db: AsyncSession = Depends(get_async_db)) -> Di
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error getting user {user_id}: {e}")
+        logger.error(f"Error getting/creating user {user_id}: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 @router.get("/orders")
@@ -461,3 +501,338 @@ async def sms_webhook(request: Request) -> Dict[str, Any]:
     except Exception as e:
         logger.error(f"Webhook error: {e}")
         raise HTTPException(status_code=500, detail="Webhook failed")
+    
+# ===== Дополнительные эндпоинты =====
+
+@router.get("/messages")
+async def get_user_messages(
+    user_id: str = None,
+    limit: int = 50,
+    offset: int = 0,
+    db: AsyncSession = Depends(get_async_db)
+) -> Dict[str, Any]:
+    """Получить все сообщения пользователя с пагинацией"""
+    try:
+        if not user_id:
+            raise HTTPException(status_code=400, detail="user_id is required")
+        
+        logger.info(f"Getting messages for user: {user_id}, limit: {limit}, offset: {offset}")
+        
+        from ..models.models import Message
+        
+        # Получаем сообщения через заказы пользователя с пагинацией
+        query = (
+            select(Message, Order, Country, Service)
+            .join(Order, Message.order_id == Order.id)
+            .join(Country, Order.country_id == Country.id)
+            .join(Service, Order.service_id == Service.id)
+            .where(Order.user_telegram_id == user_id)
+            .order_by(Message.received_at.desc())
+            .limit(limit)
+            .offset(offset)
+        )
+        
+        result = await db.execute(query)
+        messages_data = []
+        
+        for message, order, country, service in result:
+            messages_data.append({
+                "id": message.id,
+                "order_id": message.order_id,
+                "phone_number": order.phone_number,
+                "text": message.text,
+                "code": message.code,
+                "received_at": message.received_at.isoformat(),
+                "has_code": bool(message.code),
+                "order_status": order.status,
+                "country": {
+                    "name": country.name,
+                    "flag": country.flag
+                },
+                "service": {
+                    "name": service.name,
+                    "icon": service.icon
+                }
+            })
+        
+        # Получаем общий счетчик для пагинации
+        count_query = (
+            select(Message)
+            .join(Order, Message.order_id == Order.id)
+            .where(Order.user_telegram_id == user_id)
+        )
+        count_result = await db.execute(count_query)
+        total_count = len(count_result.scalars().all())
+        
+        logger.info(f"Returning {len(messages_data)} messages out of {total_count}")
+        
+        return {
+            "messages": messages_data,
+            "total": total_count,
+            "limit": limit,
+            "offset": offset,
+            "has_more": offset + limit < total_count
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting user messages: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+@router.post("/webhook/sms/{provider}")
+async def sms_webhook_provider(
+    provider: str,
+    request: Request,
+    db: AsyncSession = Depends(get_async_db)
+) -> Dict[str, Any]:
+    """Webhook для конкретного SMS провайдера"""
+    try:
+        logger.info(f"SMS webhook from provider: {provider}")
+        
+        # Проверяем webhook secret если нужно
+        webhook_secret = request.headers.get("X-Webhook-Secret")
+        # if webhook_secret != settings.sms_webhook_secret:
+        #     raise HTTPException(status_code=401, detail="Invalid webhook secret")
+        
+        body = await request.body()
+        logger.info(f"Webhook data from {provider}: {body}")
+        
+        try:
+            webhook_data = json.loads(body) if body else {}
+        except json.JSONDecodeError as e:
+            logger.error(f"Invalid JSON from {provider}: {e}")
+            raise HTTPException(status_code=400, detail="Invalid JSON")
+        
+        # Обрабатываем через webhook handler
+        from ..services.sms.webhook import webhook_handler
+        
+        success = await webhook_handler.handle_provider_specific_webhook(provider, webhook_data)
+        
+        if success:
+            return {
+                "status": "ok", 
+                "message": f"Webhook from {provider} processed successfully"
+            }
+        else:
+            raise HTTPException(status_code=400, detail="Failed to process webhook")
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error processing {provider} webhook: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+@router.get("/orders/{order_id}/status")
+async def get_order_status(
+    order_id: str,
+    db: AsyncSession = Depends(get_async_db)
+) -> Dict[str, Any]:
+    """Получить актуальный статус заказа"""
+    try:
+        logger.info(f"Getting status for order: {order_id}")
+        
+        # Получаем заказ
+        result = await db.execute(
+            select(Order).where(Order.id == order_id)
+        )
+        order = result.scalars().first()
+        
+        if not order:
+            raise HTTPException(status_code=404, detail="Order not found")
+        
+        # Получаем количество сообщений
+        from ..models.models import Message
+        messages_result = await db.execute(
+            select(Message).where(Message.order_id == order_id)
+        )
+        messages = messages_result.scalars().all()
+        
+        # Проверяем не истек ли заказ
+        is_expired = datetime.now() > order.expires_at
+        
+        return {
+            "order_id": order.id,
+            "status": order.status,
+            "phone_number": order.phone_number,
+            "created_at": order.created_at.isoformat(),
+            "expires_at": order.expires_at.isoformat(),
+            "is_expired": is_expired,
+            "messages_count": len(messages),
+            "has_sms": len(messages) > 0,
+            "latest_code": messages[-1].code if messages and messages[-1].code else None
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting order status: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+@router.put("/users/{user_id}/balance")
+async def update_user_balance(
+    user_id: str,
+    request: Request,
+    db: AsyncSession = Depends(get_async_db)
+) -> Dict[str, Any]:
+    """Обновить баланс пользователя (админская функция)"""
+    try:
+        # TODO: Добавить проверку прав администратора
+        
+        body = await request.body()
+        try:
+            data = json.loads(body) if body else {}
+        except json.JSONDecodeError:
+            raise HTTPException(status_code=400, detail="Invalid JSON")
+        
+        new_balance = data.get("balance")
+        if new_balance is None:
+            raise HTTPException(status_code=400, detail="balance is required")
+        
+        # Конвертируем рубли в копейки
+        balance_kopecks = int(float(new_balance) * 100)
+        
+        # Обновляем баланс
+        updated_user = await UserService.update_user_balance(db, user_id, balance_kopecks)
+        
+        if not updated_user:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        logger.info(f"Updated balance for user {user_id}: {balance_kopecks} kopecks")
+        
+        return {
+            "user_id": updated_user.telegram_id,
+            "old_balance": data.get("old_balance", 0),
+            "new_balance": updated_user.balance / 100,
+            "updated_at": datetime.now().isoformat()
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating user balance: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+@router.get("/stats/summary")
+async def get_stats_summary(db: AsyncSession = Depends(get_async_db)) -> Dict[str, Any]:
+    """Получить общую статистику системы"""
+    try:
+        logger.info("Getting system stats summary")
+        
+        # Получаем общую статистику
+        from sqlalchemy import func
+        
+        # Общее количество пользователей
+        users_result = await db.execute(select(func.count(User.id)))
+        total_users = users_result.scalar()
+        
+        # Общее количество заказов
+        orders_result = await db.execute(select(func.count(Order.id)))
+        total_orders = orders_result.scalar()
+        
+        # Активные заказы
+        active_orders_result = await db.execute(
+            select(func.count(Order.id)).where(Order.status == OrderStatus.PENDING.value)
+        )
+        active_orders = active_orders_result.scalar()
+        
+        # Общий доход (в рублях)
+        revenue_result = await db.execute(
+            select(func.sum(Order.price)).where(
+                Order.status.in_([OrderStatus.RECEIVED.value, OrderStatus.EXPIRED.value])
+            )
+        )
+        total_revenue_kopecks = revenue_result.scalar() or 0
+        
+        # Сообщения за сегодня
+        from ..models.models import Message
+        today = datetime.now().date()
+        messages_today_result = await db.execute(
+            select(func.count(Message.id)).where(
+                func.date(Message.received_at) == today
+            )
+        )
+        messages_today = messages_today_result.scalar()
+        
+        return {
+            "total_users": total_users,
+            "total_orders": total_orders,
+            "active_orders": active_orders,
+            "total_revenue": total_revenue_kopecks / 100,
+            "messages_today": messages_today,
+            "updated_at": datetime.now().isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting stats summary: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+@router.get("/orders/{order_id}/refresh")
+async def refresh_order_status(
+    order_id: str,
+    db: AsyncSession = Depends(get_async_db)
+) -> Dict[str, Any]:
+    """Принудительно обновить статус заказа через SMS провайдера"""
+    try:
+        logger.info(f"Refreshing order status: {order_id}")
+        
+        # Получаем заказ
+        result = await db.execute(
+            select(Order).where(Order.id == order_id)
+        )
+        order = result.scalars().first()
+        
+        if not order:
+            raise HTTPException(status_code=404, detail="Order not found")
+        
+        if order.status != OrderStatus.PENDING.value:
+            return {
+                "order_id": order.id,
+                "status": order.status,
+                "message": "Order is not pending"
+            }
+        
+        # Проверяем SMS через провайдера
+        order_service = OrderService()
+        if order_service.sms_provider and order.external_order_id:
+            try:
+                sms_result = await order_service.sms_provider.get_sms(order.external_order_id)
+                
+                if sms_result and sms_result.get('messages'):
+                    # Если есть новые сообщения, обрабатываем их
+                    for msg in sms_result['messages']:
+                        webhook_data = {
+                            "order_id": order.external_order_id,
+                            "phone_number": order.phone_number,
+                            "message_text": msg.get('text', ''),
+                            "timestamp": datetime.now().isoformat()
+                        }
+                        
+                        from ..services.sms.webhook import webhook_handler
+                        await webhook_handler.process_webhook(webhook_data, "refresh")
+                
+                return {
+                    "order_id": order.id,
+                    "status": "refreshed",
+                    "messages_found": len(sms_result.get('messages', [])) if sms_result else 0
+                }
+                
+            except Exception as e:
+                logger.warning(f"Error refreshing from SMS provider: {e}")
+                return {
+                    "order_id": order.id,
+                    "status": "error",
+                    "message": "Failed to refresh from provider"
+                }
+        
+        return {
+            "order_id": order.id,
+            "status": "no_provider",
+            "message": "SMS provider not available"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error refreshing order status: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
