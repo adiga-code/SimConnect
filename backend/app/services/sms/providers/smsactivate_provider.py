@@ -133,6 +133,8 @@ class SMSActivateProvider(BaseSMSProvider):
                 "wa": {"name": "WhatsApp", "icon": "fab fa-whatsapp", "price": 18},
                 "vk": {"name": "VKontakte", "icon": "fab fa-vk", "price": 12},
                 "ok": {"name": "Odnoklassniki", "icon": "fas fa-circle", "price": 10},
+                "fb": {"name": "Facebook", "icon": "fab fa-facebook", "price": 20},
+                "ig": {"name": "Instagram", "icon": "fab fa-instagram", "price": 25}
             }
             return services
             
