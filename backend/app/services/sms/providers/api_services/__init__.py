@@ -1,1 +1,1 @@
-from api_smsactivate import SMSActivateAPI
+from api_smsactivate import AsyncSMSActivateAPI

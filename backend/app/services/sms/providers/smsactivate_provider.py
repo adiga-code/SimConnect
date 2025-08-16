@@ -3,7 +3,7 @@ import logging
 from typing import Optional, Dict, Any
 from datetime import datetime
 from .base_provider import BaseSMSProvider
-from .api_services import SMSActivateAPI
+from .api_services import AsyncSMSActivateAPI
 
 logger = logging.getLogger(__name__)
 
@@ -110,7 +110,7 @@ class SMSActivateProvider(BaseSMSProvider):
     async def get_countries(self) -> Optional[Dict[str, Any]]:
         """Получить список стран"""
         try:
-            countries = await SMSActivateAPI.get_countries()
+            #countries = await AsSMSActivateAPI.get_countries()
             print(countries)
             countries = {
                 "0": {"name": "Россия", "code": "RU", "flag": "🇷🇺", "price": 15},
