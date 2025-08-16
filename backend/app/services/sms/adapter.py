@@ -2,6 +2,7 @@ import logging
 from typing import Optional, Dict, Any
 from .providers.base_provider import BaseSMSProvider
 from .providers.dummy_provider import DummyProvider
+from .providers.smsactivate_provider import SMSActivateProvider
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +20,9 @@ class SMSAdapter:
             if self.provider_name == "dummy":
                 logger.info("Initializing dummy SMS provider")
                 return DummyProvider(api_key=self.api_key)
+            elif self.provider_name == "smsactivate":
+                logger.info("Initializing SMSActivate provider")
+                return SMSActivateProvider(api_key=self.api_key)
             else:
                 logger.error(f"Unknown SMS provider: {self.provider_name}")
                 # Возвращаем dummy provider как fallback

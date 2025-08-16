@@ -13,8 +13,8 @@ class Settings(BaseSettings):
     cors_origins_str: str = ""  # Строка из .env
     
     # SMS Service
-    sms_provider: str = "dummy"
-    sms_api_key: str = ""
+    sms_provider: str = "smsactivate"
+    sms_api_key: str = "1994406e9987d71A986488df8878b26A"
     sms_api_url: str = "https://api.sms-service.com"
     sms_webhook_secret: str = "webhook-secret-key"
     
